@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>bot-mua-hang — Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    header { background: #1e293b; padding: 1rem 2rem; display: flex; align-items: center; gap: 1rem; border-bottom: 1px solid #334155; }
+    header h1 { font-size: 1.25rem; font-weight: 700; color: #f8fafc; }
+    #status-dot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; margin-left: auto; }
+    #status-dot.connected { background: #22c55e; }
+    #start-btn { padding: 0.45rem 1.1rem; border-radius: 0.5rem; border: none; font-size: 0.875rem; font-weight: 600; cursor: pointer; background: #22c55e; color: #052e16; transition: background 0.2s, opacity 0.2s; }
+    #start-btn:hover:not(:disabled) { background: #16a34a; }
+    #start-btn:disabled { opacity: 0.45; cursor: not-allowed; background: #334155; color: #94a3b8; }
+    #login-btn { padding: 0.45rem 1.1rem; border-radius: 0.5rem; border: none; font-size: 0.875rem; font-weight: 600; cursor: pointer; background: #f97316; color: #fff; transition: background 0.2s, opacity 0.2s; }
+    #login-btn:hover:not(:disabled) { background: #ea6c00; }
+    #login-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .login-badge { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.65rem; border-radius: 9999px; font-size: 0.78rem; font-weight: 600; }
+    .login-badge.unknown  { background: #334155; color: #94a3b8; }
+    .login-badge.logged-out { background: #7f1d1d; color: #fca5a5; }
+    .login-badge.logged-in  { background: #14532d; color: #86efac; }
+    #start-banner { display: none; padding: 0.6rem 2rem; background: #1e3a5f; border-bottom: 1px solid #1d4ed8; font-size: 0.83rem; color: #93c5fd; text-align: center; }
+    main { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; padding: 1.5rem 2rem; height: calc(100vh - 65px); transition: grid-template-columns 0.3s ease; }
+    main.orders-collapsed { grid-template-columns: 0fr 1fr; }
+    section { background: #1e293b; border-radius: 0.75rem; border: 1px solid #334155; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+    #orders-section { transition: opacity 0.3s ease, min-width 0.3s ease; }
+    main.orders-collapsed #orders-section { opacity: 0; min-width: 0; overflow: hidden; border: none; padding: 0; margin: 0; }
+    main.orders-collapsed #orders-section > * { display: none; }
+    section h2 { padding: 0.75rem 1rem; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border-bottom: 1px solid #334155; display: flex; align-items: center; }
+    #toggle-orders { background: none; border: 1px solid #475569; color: #94a3b8; border-radius: 0.3rem; padding: 0.15rem 0.5rem; font-size: 0.72rem; cursor: pointer; margin-left: auto; transition: background 0.15s, color 0.15s; }
+    #toggle-orders:hover { background: #334155; color: #e2e8f0; }
+    #orders-table-wrap { overflow: auto; flex: 1; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+    thead th { padding: 0.6rem 0.7rem; text-align: left; color: #94a3b8; font-weight: 600; background: #1e293b; position: sticky; top: 0; z-index: 1; white-space: nowrap; }
+    tbody tr { border-top: 1px solid #334155; transition: background 0.15s; }
+    tbody tr:hover { background: #273549; }
+    tbody td { padding: 0.55rem 0.7rem; vertical-align: middle; }
+    .badge { display: inline-block; padding: 0.2rem 0.55rem; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; }
+    .badge-pending  { background: #334155; color: #94a3b8; }
+    .badge-running  { background: #1d4ed8; color: #bfdbfe; animation: pulse 1.5s infinite; }
+    .badge-success  { background: #14532d; color: #86efac; }
+    .badge-failed   { background: #7f1d1d; color: #fca5a5; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+    .url-cell { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .url-cell a { color: #60a5fa; text-decoration: none; }
+    .url-cell a:hover { text-decoration: underline; }
+    .action-cell { white-space: nowrap; display: flex; gap: 0.4rem; }
+    .btn-sm { padding: 0.25rem 0.6rem; border-radius: 0.35rem; border: none; font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+    .btn-edit  { background: #1e40af; color: #bfdbfe; }
+    .btn-edit:hover  { background: #1d4ed8; }
+    .btn-rebuy { background: #7c3aed; color: #ede9fe; }
+    .btn-rebuy:hover { background: #6d28d9; }
+    .btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+    #preview-panel { display: flex; flex-direction: column; }
+    #preview-title { padding: 0.75rem 1rem; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border-bottom: 1px solid #334155; }
+    #screenshot-wrap { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #0f172a; padding: 0.5rem; }
+    #screenshot-img { max-width: 100%; max-height: 100%; border-radius: 0.5rem; object-fit: contain; }
+    #reasoning-box { padding: 0.75rem 1rem; border-top: 1px solid #334155; font-size: 0.8rem; color: #94a3b8; min-height: 3rem; max-height: 5rem; overflow: auto; }
+    #reasoning-box strong { color: #e2e8f0; }
+    #step-counter { padding: 0.4rem 1rem; font-size: 0.75rem; color: #64748b; border-top: 1px solid #334155; }
+    #log-panel { border-top: 1px solid #334155; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    #log-header { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; background: #1e293b; }
+    #log-content { flex: 1; overflow-y: auto; padding: 0.5rem 0.75rem; background: #0b1120; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.72rem; line-height: 1.45; color: #94a3b8; min-height: 80px; }
+    #log-content .log-line { white-space: pre-wrap; word-break: break-all; }
+    #log-content .log-line.warn { color: #fbbf24; }
+    #log-content .log-line.error { color: #f87171; }
+    .no-orders { padding: 2rem; text-align: center; color: #475569; }
+
+    /* Upload zone */
+    #upload-zone { display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 2rem; }
+    #upload-zone.visible { display: flex; }
+    #drop-area { border: 2px dashed #334155; border-radius: 0.75rem; padding: 2.5rem 3rem; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; width: 100%; max-width: 420px; }
+    #drop-area:hover, #drop-area.drag-over { border-color: #3b82f6; background: #1a2d47; }
+    #drop-area p { color: #94a3b8; font-size: 0.9rem; margin-top: 0.5rem; }
+    #drop-area .icon { font-size: 2.5rem; }
+    #upload-input { display: none; }
+    #upload-status { font-size: 0.82rem; color: #64748b; }
+
+    /* Modal */
+    #modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+    #modal-overlay.open { display: flex; }
+    #modal { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; width: 480px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 1.5rem; }
+    #modal h3 { font-size: 1rem; font-weight: 700; color: #f8fafc; margin-bottom: 1.25rem; }
+    .field-group { margin-bottom: 1rem; }
+    .field-group label { display: block; font-size: 0.78rem; font-weight: 600; color: #94a3b8; margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .field-group input { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 0.4rem; padding: 0.5rem 0.7rem; color: #e2e8f0; font-size: 0.875rem; outline: none; }
+    .field-group input:focus { border-color: #3b82f6; }
+    .modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem; }
+    .btn-save   { padding: 0.5rem 1.2rem; border-radius: 0.4rem; border: none; background: #3b82f6; color: #fff; font-weight: 600; cursor: pointer; }
+    .btn-save:hover { background: #2563eb; }
+    .btn-cancel { padding: 0.5rem 1.2rem; border-radius: 0.4rem; border: 1px solid #334155; background: transparent; color: #94a3b8; font-weight: 600; cursor: pointer; }
+    .btn-cancel:hover { background: #273549; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🛒 bot-mua-hang</h1>
+    <span id="connection-label" style="font-size:0.8rem;color:#64748b;">Connecting…</span>
+    <span id="login-badge" class="login-badge unknown">⬤ Checking…</span>
+    <button id="login-btn" onclick="loginShopee()" style="display:none">🔑 Login to Shopee</button>
+    <button id="start-btn" disabled onclick="startBot()">▶ Start</button>
+    <span id="status-dot"></span>
+  </header>
+  <div id="start-banner">⏳ Orders loaded — click <strong>Start</strong> to begin processing.</div>
+
+  <main>
+    <section id="orders-section">
+      <h2>Orders
+        <button id="reimport-btn" onclick="document.getElementById('upload-input').click()"
+          style="display:none;margin-left:0.75rem;padding:0.2rem 0.6rem;border-radius:0.35rem;border:1px solid #334155;background:transparent;color:#94a3b8;font-size:0.72rem;font-weight:600;cursor:pointer;">
+          ↑ Re-import
+        </button>
+        <button id="toggle-orders" onclick="toggleOrdersPanel()">◀ Hide</button>
+      </h2>
+      <input type="file" id="upload-input" accept=".xlsx,.xls" onchange="handleFileSelect(this)" />
+
+      <!-- Upload zone (shown when no orders) -->
+      <div id="upload-zone" class="visible">
+        <div id="drop-area" onclick="document.getElementById('upload-input').click()"
+             ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+          <div class="icon">📂</div>
+          <strong style="color:#e2e8f0">Drop your Excel file here</strong>
+          <p>or click to browse — .xlsx / .xls</p>
+        </div>
+        <span id="upload-status"></span>
+      </div>
+
+      <!-- Orders table (shown when orders loaded) -->
+      <div id="orders-table-wrap" style="display:none">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Product</th>
+              <th>URL</th>
+              <th>Qty</th>
+              <th>Receiver</th>
+              <th>Status</th>
+              <th>Order ID</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="orders-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+    <section id="preview-panel">
+      <div id="preview-title" style="display:flex;align-items:center;">
+        <span>Live Preview</span>
+        <button id="show-orders" onclick="toggleOrdersPanel()" style="display:none;background:none;border:1px solid #475569;color:#94a3b8;border-radius:0.3rem;padding:0.15rem 0.5rem;font-size:0.72rem;cursor:pointer;margin-left:auto;">▶ Orders</button>
+      </div>
+      <div id="screenshot-wrap">
+        <img id="screenshot-img" src="" alt="No screenshot yet" style="display:none" />
+        <span id="no-screenshot" style="color:#475569;font-size:0.85rem;">No active task</span>
+      </div>
+      <div id="reasoning-box"><strong>Reasoning:</strong> —</div>
+      <div id="step-counter">Step: —</div>
+      <div id="log-panel">
+        <div id="log-header">Console Logs</div>
+        <div id="log-content"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- OTP modal -->
+  <div id="otp-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;align-items:center;justify-content:center;">
+    <div style="background:#1e293b;border:1px solid #f97316;border-radius:0.75rem;width:360px;padding:1.75rem;text-align:center;">
+      <div style="font-size:2rem;margin-bottom:0.5rem;">🔐</div>
+      <h3 style="color:#f8fafc;margin-bottom:0.5rem;">OTP Required</h3>
+      <p style="color:#94a3b8;font-size:0.85rem;margin-bottom:1.25rem;">Enter the verification code sent to your phone/email to complete payment.</p>
+      <input id="otp-input" type="text" inputmode="numeric" maxlength="8" placeholder="Enter OTP…"
+        style="width:100%;background:#0f172a;border:1px solid #f97316;border-radius:0.4rem;padding:0.6rem 0.8rem;color:#f8fafc;font-size:1.25rem;text-align:center;letter-spacing:0.2em;outline:none;margin-bottom:1rem;" />
+      <button onclick="submitOtp()"
+        style="width:100%;padding:0.6rem;border-radius:0.4rem;border:none;background:#f97316;color:#fff;font-weight:700;font-size:1rem;cursor:pointer;">
+        Submit OTP
+      </button>
+    </div>
+  </div>
+
+  <!-- Edit modal -->
+  <div id="modal-overlay" onclick="closeModal(event)">
+    <div id="modal">
+      <h3>✏️ Edit Order</h3>
+      <input type="hidden" id="edit-row-index" />
+      <div class="field-group"><label>Product URL</label><input id="edit-product_url" type="url" /></div>
+      <div class="field-group"><label>Product Name</label><input id="edit-product_name" type="text" /></div>
+      <div class="field-group"><label>Product ID</label><input id="edit-product_id" type="text" /></div>
+      <div class="field-group"><label>Receiver Name</label><input id="edit-receiver_name" type="text" /></div>
+      <div class="field-group"><label>Phone Number</label><input id="edit-phone_number" type="text" /></div>
+      <div class="field-group"><label>Address</label><input id="edit-address" type="text" /></div>
+      <div class="field-group"><label>Quantity</label><input id="edit-quantity" type="number" min="1" /></div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button class="btn-save" onclick="saveEdit()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const dot = document.getElementById('status-dot');
+    const connLabel = document.getElementById('connection-label');
+    const tbody = document.getElementById('orders-tbody');
+    const screenshotImg = document.getElementById('screenshot-img');
+    const noScreenshot = document.getElementById('no-screenshot');
+    const reasoningBox = document.getElementById('reasoning-box');
+    const stepCounter = document.getElementById('step-counter');
+    const startBtn = document.getElementById('start-btn');
+    const startBanner = document.getElementById('start-banner');
+    const modalOverlay = document.getElementById('modal-overlay');
+    const uploadZone = document.getElementById('upload-zone');
+    const ordersTableWrap = document.getElementById('orders-table-wrap');
+    const uploadStatus = document.getElementById('upload-status');
+    const reimportBtn = document.getElementById('reimport-btn');
+    const loginBadge = document.getElementById('login-badge');
+    const loginBtn = document.getElementById('login-btn');
+    const logContent = document.getElementById('log-content');
+
+    let currentOrders = [];
+    let lastLogCount = 0;
+    let ordersCollapsed = false;
+
+    function toggleOrdersPanel() {
+      ordersCollapsed = !ordersCollapsed;
+      const mainEl = document.querySelector('main');
+      const toggleBtn = document.getElementById('toggle-orders');
+      const showBtn = document.getElementById('show-orders');
+      if (ordersCollapsed) {
+        mainEl.classList.add('orders-collapsed');
+        showBtn.style.display = '';
+      } else {
+        mainEl.classList.remove('orders-collapsed');
+        showBtn.style.display = 'none';
+      }
+    }
+
+    // ── Upload handlers ──────────────────────────────────────────
+    function onDragOver(e) { e.preventDefault(); document.getElementById('drop-area').classList.add('drag-over'); }
+    function onDragLeave(e) { document.getElementById('drop-area').classList.remove('drag-over'); }
+    function onDrop(e) {
+      e.preventDefault();
+      document.getElementById('drop-area').classList.remove('drag-over');
+      const f = e.dataTransfer.files[0];
+      if (f) uploadFile(f);
+    }
+    function handleFileSelect(input) {
+      if (input.files[0]) uploadFile(input.files[0]);
+    }
+    async function uploadFile(file) {
+      uploadStatus.textContent = `Uploading ${file.name}…`;
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        uploadStatus.textContent = `✓ Loaded ${data.count} order(s)`;
+      } catch {
+        uploadStatus.textContent = '✗ Upload failed. Please try again.';
+      }
+    }
+
+    function toggleOrdersView(hasOrders) {
+      if (hasOrders) {
+        uploadZone.classList.remove('visible');
+        ordersTableWrap.style.display = '';
+        reimportBtn.style.display = '';
+      } else {
+        uploadZone.classList.add('visible');
+        ordersTableWrap.style.display = 'none';
+        reimportBtn.style.display = 'none';
+      }
+    }
+
+    // ── OTP ─────────────────────────────────────────────────────
+    const otpOverlay = document.getElementById('otp-overlay');
+    const otpInput = document.getElementById('otp-input');
+
+    function updateOtpModal(requested) {
+      if (requested) {
+        otpOverlay.style.display = 'flex';
+        otpInput.value = '';
+        setTimeout(() => otpInput.focus(), 50);
+      } else {
+        otpOverlay.style.display = 'none';
+      }
+    }
+
+    async function submitOtp() {
+      const otp = otpInput.value.trim();
+      if (!otp) return;
+      otpOverlay.style.display = 'none';
+      await fetch('/otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otp }),
+      });
+    }
+
+    document.getElementById('otp-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') submitOtp();
+    });
+
+    // ── Login ───────────────────────────────────────────────────
+    function updateLoginStatus(status) {
+      loginBadge.className = 'login-badge ' + (status === 'logged_in' ? 'logged-in' : status === 'logged_out' ? 'logged-out' : 'unknown');
+      if (status === 'logged_in') {
+        loginBadge.textContent = '✓ Logged in';
+        loginBtn.style.display = 'none';
+      } else if (status === 'logged_out') {
+        loginBadge.textContent = '✗ Not logged in';
+        loginBtn.style.display = '';
+        loginBtn.disabled = false;
+        loginBtn.textContent = '🔑 Login to Shopee';
+      } else {
+        loginBadge.textContent = '⬤ Checking…';
+        loginBtn.style.display = 'none';
+      }
+    }
+
+    async function loginShopee() {
+      loginBtn.disabled = true;
+      loginBtn.textContent = '⏳ Opening…';
+      await fetch('/login', { method: 'POST' });
+    }
+
+    // ── Start button ────────────────────────────────────────────
+    function updateStartButton(started, hasOrders) {
+      if (started) {
+        startBtn.disabled = true;
+        startBtn.textContent = '⏳ Running…';
+        startBanner.style.display = 'none';
+      } else if (hasOrders) {
+        startBtn.disabled = false;
+        startBtn.textContent = '▶ Start';
+        startBanner.style.display = 'block';
+      } else {
+        startBtn.disabled = true;
+        startBtn.textContent = '▶ Start';
+        startBanner.style.display = 'none';
+      }
+    }
+
+    async function startBot() {
+      startBtn.disabled = true;
+      startBtn.textContent = '⏳ Starting…';
+      try { await fetch('/start', { method: 'POST' }); }
+      catch { startBtn.disabled = false; startBtn.textContent = '▶ Start'; }
+    }
+
+    // ── Orders table ─────────────────────────────────────────────
+    function statusBadge(s) {
+      return `<span class="badge badge-${s}">${s}</span>`;
+    }
+
+    function renderOrders(orders) {
+      if (!orders || orders.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="no-orders">No orders loaded.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = orders.map(o => {
+        const rebuyDisabled = o.status === 'running' ? 'disabled' : '';
+        return `<tr>
+          <td>${o.row_index}</td>
+          <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.product_name)}">${esc(o.product_name) || '—'}</td>
+          <td class="url-cell"><a href="${esc(o.product_url)}" target="_blank">${esc(o.product_url)}</a></td>
+          <td>${o.quantity ?? '—'}</td>
+          <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.receiver_name)}">${esc(o.receiver_name) || '—'}</td>
+          <td>${statusBadge(o.status)}</td>
+          <td style="font-size:0.75rem;color:#94a3b8">${esc(o.order_id) || '—'}</td>
+          <td><div class="action-cell">
+            <button class="btn-sm btn-edit" onclick="openEdit(${o.row_index})">✏️ Edit</button>
+            <button class="btn-sm btn-rebuy" ${rebuyDisabled} onclick="rebuy(${o.row_index}, this)">🔄 Re-buy</button>
+          </div></td>
+        </tr>`;
+      }).join('');
+    }
+
+    function esc(s) {
+      if (!s) return '';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── Live preview ─────────────────────────────────────────────
+    function updatePreview(orders) {
+      const active = orders.find(o => o.status === 'running');
+      if (active && active.last_screenshot_b64) {
+        screenshotImg.src = 'data:image/png;base64,' + active.last_screenshot_b64;
+        screenshotImg.style.display = '';
+        noScreenshot.style.display = 'none';
+        reasoningBox.innerHTML = `<strong>Reasoning:</strong> ${esc(active.last_reasoning) || '…'}`;
+        stepCounter.textContent = `Step: ${active.current_step}`;
+      } else {
+        screenshotImg.style.display = 'none';
+        noScreenshot.style.display = '';
+      }
+    }
+
+    // ── Console logs ──────────────────────────────────────────────
+    function updateLogs(logs) {
+      if (!logs || logs.length === 0) return;
+      // Only append new entries
+      const newLogs = logs.slice(lastLogCount);
+      lastLogCount = logs.length;
+      for (const line of newLogs) {
+        const div = document.createElement('div');
+        div.className = 'log-line';
+        if (/\[WARNING\]/.test(line)) div.classList.add('warn');
+        else if (/\[ERROR\]/.test(line)) div.classList.add('error');
+        div.textContent = line;
+        logContent.appendChild(div);
+      }
+      // Keep max 500 DOM nodes
+      while (logContent.children.length > 500) logContent.removeChild(logContent.firstChild);
+      logContent.scrollTop = logContent.scrollHeight;
+    }
+
+    // ── Edit modal ───────────────────────────────────────────────
+    function openEdit(rowIndex) {
+      const o = currentOrders.find(x => x.row_index === rowIndex);
+      if (!o) return;
+      document.getElementById('edit-row-index').value = rowIndex;
+      ['product_url','product_name','product_id','receiver_name','phone_number','address','quantity'].forEach(f => {
+        document.getElementById('edit-' + f).value = o[f] ?? '';
+      });
+      modalOverlay.classList.add('open');
+    }
+
+    function closeModal(evt) {
+      if (!evt || evt.target === modalOverlay) modalOverlay.classList.remove('open');
+    }
+
+    async function saveEdit() {
+      const rowIndex = parseInt(document.getElementById('edit-row-index').value);
+      const body = {};
+      ['product_url','product_name','product_id','receiver_name','phone_number','address'].forEach(f => {
+        const v = document.getElementById('edit-' + f).value.trim();
+        if (v) body[f] = v;
+      });
+      const qty = parseInt(document.getElementById('edit-quantity').value);
+      if (qty > 0) body.quantity = qty;
+
+      modalOverlay.classList.remove('open');
+      await fetch(`/orders/${rowIndex}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    // ── Re-buy ───────────────────────────────────────────────────
+    async function rebuy(rowIndex, btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳';
+      await fetch(`/orders/${rowIndex}/rebuy`, { method: 'POST' });
+    }
+
+    // ── WebSocket ────────────────────────────────────────────────
+    function connect() {
+      const ws = new WebSocket(`ws://${location.host}/ws`);
+      ws.onopen = () => {
+        dot.classList.add('connected');
+        connLabel.textContent = 'Connected';
+        lastLogCount = 0;
+        logContent.innerHTML = '';
+      };
+      ws.onmessage = (evt) => {
+        const data = JSON.parse(evt.data);
+        currentOrders = data.orders || [];
+        toggleOrdersView(currentOrders.length > 0);
+        renderOrders(currentOrders);
+        updatePreview(currentOrders);
+        updateLoginStatus(data.login_status);
+        updateStartButton(data.started, currentOrders.length > 0);
+        updateOtpModal(data.otp_requested);
+        updateLogs(data.logs);
+      };
+      ws.onclose = () => {
+        dot.classList.remove('connected');
+        connLabel.textContent = 'Disconnected — reconnecting…';
+        setTimeout(connect, 3000);
+      };
+      ws.onerror = () => ws.close();
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+    connect();
+  </script>
+</body>
+</html>

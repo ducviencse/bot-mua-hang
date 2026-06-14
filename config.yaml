@@ -1,0 +1,28 @@
+model: google/gemma-4-31b-it
+headless: false
+viewport:
+  width: 1280
+  height: 1080
+max_steps: 40
+wait_timeout_ms: 3000
+dashboard_port: 8081
+session_dir: ./session
+# null = use patchright's patched Chromium (recommended — bypasses anti-bot detection).
+# "chrome" = use your installed Google Chrome instead.
+browser_channel: null
+
+# Connect to your real Chrome browser for stealth.
+# Start Chrome with: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222
+# null = launch patchright's own Chromium (current behavior)
+# "http://localhost:9222" = connect to existing Chrome via CDP
+cdp_endpoint: "http://localhost:9222"
+
+# Seller note written on every order
+seller_note: "Quà tặng từ tu cua hang cua toi"
+
+# VAT invoice details (leave empty to skip invoice step)
+invoice:
+  company_name: ""
+  tax_id: ""
+  address: ""
+  email: ""
