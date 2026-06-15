@@ -6,8 +6,8 @@ from pathlib import Path
 
 from .agent import Action, VisionAgent
 from .browser import BrowserManager
-from .excel_handler import update_order_status
-from .state import AppState, OrderState
+from .database import insert_step, update_order
+from .state import AppState, OrderState, classify_failure
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,6 @@ class ShopeeBot:
         agent: VisionAgent,
         browser: BrowserManager,
         app_state: AppState,
-        excel_path: str,
         seller_note: str = "",
         invoice: dict | None = None,
         max_steps: int = 20,
@@ -111,7 +110,6 @@ class ShopeeBot:
         self.agent = agent
         self.browser = browser
         self.app_state = app_state
-        self.excel_path = excel_path
         self.seller_note = seller_note
         self.invoice = invoice or {}
         self.max_steps = max_steps
@@ -135,6 +133,13 @@ class ShopeeBot:
         self.agent.reset_history()
         self._recent_actions: list[str] = []
         order_state.status = "running"
+        if order_state.db_order_id:
+            update_order(
+                order_state.db_order_id,
+                status="running",
+                started_at=datetime.now().isoformat(),
+                debug_log_dir=str(ol._run_dir),
+            )
         await self.app_state.broadcast()
 
         try:
@@ -195,6 +200,25 @@ class ShopeeBot:
                 action.text_to_type, action.scroll_direction, action.reasoning,
             )
             ol.step(step, url, action, llm_raw=llm_raw, elements=elements)
+
+            # Persist step to DB
+            if order_state.db_order_id:
+                insert_step(
+                    order_state.db_order_id,
+                    step_number=step,
+                    url=url,
+                    action=action.action,
+                    element_index=action.element_index,
+                    target_x=action.target_x,
+                    target_y=action.target_y,
+                    text_to_type=action.text_to_type or "",
+                    scroll_direction=action.scroll_direction or "",
+                    reasoning=action.reasoning or "",
+                    observation=action.observation or "",
+                    screenshot_filename=f"step{step}.png",
+                    annotated_filename=f"step{step}_annotated.png",
+                )
+
             await self.app_state.broadcast()
 
             # --- Stuck detection ---
@@ -218,7 +242,14 @@ class ShopeeBot:
                 order_id = await self._extract_order_id()
                 order_state.status = "success"
                 order_state.order_id = order_id
-                update_order_status(self.excel_path, row_index, "success", order_id)
+                if order_state.db_order_id:
+                    update_order(
+                        order_state.db_order_id,
+                        status="success",
+                        order_id=order_id,
+                        total_steps=step,
+                        completed_at=datetime.now().isoformat(),
+                    )
                 logger.info("[Order %d] SUCCESS — order_id=%s", row_index, order_id)
                 ol.result("SUCCESS", f"order_id={order_id}")
                 await self.app_state.broadcast()
@@ -288,8 +319,18 @@ class ShopeeBot:
     async def _fail(self, order_state: OrderState, row_index: int, note: str) -> None:
         order_state.status = "failed"
         order_state.note = note
-        update_order_status(self.excel_path, row_index, "failed", note=note)
-        logger.warning("[Order %d] FAILED — %s", row_index, note)
+        order_state.failure_category = classify_failure(note)
+        if order_state.db_order_id:
+            update_order(
+                order_state.db_order_id,
+                status="failed",
+                note=note,
+                failure_category=order_state.failure_category,
+                retry_count=order_state.retry_count,
+                total_steps=order_state.current_step,
+                completed_at=datetime.now().isoformat(),
+            )
+        logger.warning("[Order %d] FAILED (%s) — %s", row_index, order_state.failure_category, note)
         await self.app_state.broadcast()
 
     async def _extract_order_id(self) -> str:

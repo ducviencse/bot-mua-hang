@@ -7,6 +7,8 @@ max_steps: 40
 wait_timeout_ms: 3000
 dashboard_port: 8081
 session_dir: ./session
+batch_size: 50        # orders per batch
+max_retries: 2        # auto-retry retryable failures
 # null = use patchright's patched Chromium (recommended — bypasses anti-bot detection).
 # "chrome" = use your installed Google Chrome instead.
 browser_channel: null

@@ -4,201 +4,301 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>bot-mua-hang — Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface:  { DEFAULT: '#1e293b', dark: '#0f172a', light: '#273549' },
+            border:   { DEFAULT: '#334155' },
+            muted:    '#94a3b8',
+            heading:  '#f8fafc',
+          }
+        }
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer components {
+      .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold; }
+      .badge-pending  { @apply bg-slate-700 text-slate-400; }
+      .badge-running  { @apply bg-blue-800 text-blue-200 animate-pulse; }
+      .badge-success  { @apply bg-green-900 text-green-300; }
+      .badge-failed   { @apply bg-red-900 text-red-300; }
+      .badge-completed { @apply bg-green-900 text-green-300; }
+      .btn-primary { @apply px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed; }
+      .card { @apply bg-surface border border-border rounded-xl; }
+    }
+    @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.5} }
+  </style>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
-    header { background: #1e293b; padding: 1rem 2rem; display: flex; align-items: center; gap: 1rem; border-bottom: 1px solid #334155; }
-    header h1 { font-size: 1.25rem; font-weight: 700; color: #f8fafc; }
-    #status-dot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; margin-left: auto; }
-    #status-dot.connected { background: #22c55e; }
-    #start-btn { padding: 0.45rem 1.1rem; border-radius: 0.5rem; border: none; font-size: 0.875rem; font-weight: 600; cursor: pointer; background: #22c55e; color: #052e16; transition: background 0.2s, opacity 0.2s; }
-    #start-btn:hover:not(:disabled) { background: #16a34a; }
-    #start-btn:disabled { opacity: 0.45; cursor: not-allowed; background: #334155; color: #94a3b8; }
-    #login-btn { padding: 0.45rem 1.1rem; border-radius: 0.5rem; border: none; font-size: 0.875rem; font-weight: 600; cursor: pointer; background: #f97316; color: #fff; transition: background 0.2s, opacity 0.2s; }
-    #login-btn:hover:not(:disabled) { background: #ea6c00; }
-    #login-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-    .login-badge { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.65rem; border-radius: 9999px; font-size: 0.78rem; font-weight: 600; }
-    .login-badge.unknown  { background: #334155; color: #94a3b8; }
-    .login-badge.logged-out { background: #7f1d1d; color: #fca5a5; }
-    .login-badge.logged-in  { background: #14532d; color: #86efac; }
-    #start-banner { display: none; padding: 0.6rem 2rem; background: #1e3a5f; border-bottom: 1px solid #1d4ed8; font-size: 0.83rem; color: #93c5fd; text-align: center; }
-    main { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; padding: 1.5rem 2rem; height: calc(100vh - 65px); transition: grid-template-columns 0.3s ease; }
-    main.orders-collapsed { grid-template-columns: 0fr 1fr; }
-    section { background: #1e293b; border-radius: 0.75rem; border: 1px solid #334155; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
-    #orders-section { transition: opacity 0.3s ease, min-width 0.3s ease; }
-    main.orders-collapsed #orders-section { opacity: 0; min-width: 0; overflow: hidden; border: none; padding: 0; margin: 0; }
-    main.orders-collapsed #orders-section > * { display: none; }
-    section h2 { padding: 0.75rem 1rem; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border-bottom: 1px solid #334155; display: flex; align-items: center; }
-    #toggle-orders { background: none; border: 1px solid #475569; color: #94a3b8; border-radius: 0.3rem; padding: 0.15rem 0.5rem; font-size: 0.72rem; cursor: pointer; margin-left: auto; transition: background 0.15s, color 0.15s; }
-    #toggle-orders:hover { background: #334155; color: #e2e8f0; }
-    #orders-table-wrap { overflow: auto; flex: 1; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
-    thead th { padding: 0.6rem 0.7rem; text-align: left; color: #94a3b8; font-weight: 600; background: #1e293b; position: sticky; top: 0; z-index: 1; white-space: nowrap; }
-    tbody tr { border-top: 1px solid #334155; transition: background 0.15s; }
-    tbody tr:hover { background: #273549; }
-    tbody td { padding: 0.55rem 0.7rem; vertical-align: middle; }
-    .badge { display: inline-block; padding: 0.2rem 0.55rem; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; }
-    .badge-pending  { background: #334155; color: #94a3b8; }
-    .badge-running  { background: #1d4ed8; color: #bfdbfe; animation: pulse 1.5s infinite; }
-    .badge-success  { background: #14532d; color: #86efac; }
-    .badge-failed   { background: #7f1d1d; color: #fca5a5; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
-    .url-cell { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .url-cell a { color: #60a5fa; text-decoration: none; }
-    .url-cell a:hover { text-decoration: underline; }
-    .action-cell { white-space: nowrap; display: flex; gap: 0.4rem; }
-    .btn-sm { padding: 0.25rem 0.6rem; border-radius: 0.35rem; border: none; font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
-    .btn-edit  { background: #1e40af; color: #bfdbfe; }
-    .btn-edit:hover  { background: #1d4ed8; }
-    .btn-rebuy { background: #7c3aed; color: #ede9fe; }
-    .btn-rebuy:hover { background: #6d28d9; }
-    .btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
-    #preview-panel { display: flex; flex-direction: column; }
-    #preview-title { padding: 0.75rem 1rem; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border-bottom: 1px solid #334155; }
-    #screenshot-wrap { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #0f172a; padding: 0.5rem; }
-    #screenshot-img { max-width: 100%; max-height: 100%; border-radius: 0.5rem; object-fit: contain; }
-    #reasoning-box { padding: 0.75rem 1rem; border-top: 1px solid #334155; font-size: 0.8rem; color: #94a3b8; min-height: 3rem; max-height: 5rem; overflow: auto; }
-    #reasoning-box strong { color: #e2e8f0; }
-    #step-counter { padding: 0.4rem 1rem; font-size: 0.75rem; color: #64748b; border-top: 1px solid #334155; }
-    #log-panel { border-top: 1px solid #334155; display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    #log-header { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; background: #1e293b; }
-    #log-content { flex: 1; overflow-y: auto; padding: 0.5rem 0.75rem; background: #0b1120; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.72rem; line-height: 1.45; color: #94a3b8; min-height: 80px; }
-    #log-content .log-line { white-space: pre-wrap; word-break: break-all; }
-    #log-content .log-line.warn { color: #fbbf24; }
-    #log-content .log-line.error { color: #f87171; }
-    .no-orders { padding: 2rem; text-align: center; color: #475569; }
-
-    /* Upload zone */
-    #upload-zone { display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 2rem; }
-    #upload-zone.visible { display: flex; }
-    #drop-area { border: 2px dashed #334155; border-radius: 0.75rem; padding: 2.5rem 3rem; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; width: 100%; max-width: 420px; }
-    #drop-area:hover, #drop-area.drag-over { border-color: #3b82f6; background: #1a2d47; }
-    #drop-area p { color: #94a3b8; font-size: 0.9rem; margin-top: 0.5rem; }
-    #drop-area .icon { font-size: 2.5rem; }
-    #upload-input { display: none; }
-    #upload-status { font-size: 0.82rem; color: #64748b; }
-
-    /* Modal */
-    #modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
-    #modal-overlay.open { display: flex; }
-    #modal { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; width: 480px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 1.5rem; }
-    #modal h3 { font-size: 1rem; font-weight: 700; color: #f8fafc; margin-bottom: 1.25rem; }
-    .field-group { margin-bottom: 1rem; }
-    .field-group label { display: block; font-size: 0.78rem; font-weight: 600; color: #94a3b8; margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.04em; }
-    .field-group input { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 0.4rem; padding: 0.5rem 0.7rem; color: #e2e8f0; font-size: 0.875rem; outline: none; }
-    .field-group input:focus { border-color: #3b82f6; }
-    .modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem; }
-    .btn-save   { padding: 0.5rem 1.2rem; border-radius: 0.4rem; border: none; background: #3b82f6; color: #fff; font-weight: 600; cursor: pointer; }
-    .btn-save:hover { background: #2563eb; }
-    .btn-cancel { padding: 0.5rem 1.2rem; border-radius: 0.4rem; border: 1px solid #334155; background: transparent; color: #94a3b8; font-weight: 600; cursor: pointer; }
-    .btn-cancel:hover { background: #273549; }
+    /* Layout grid — not easy with pure Tailwind */
+    #main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; padding: 1.5rem; height: calc(100vh - 56px); transition: grid-template-columns 0.3s ease; }
+    #main-grid.orders-collapsed { grid-template-columns: 0fr 1fr; }
+    #main-grid.orders-collapsed #orders-section { opacity: 0; min-width: 0; overflow: hidden; border: none; padding: 0; margin: 0; }
+    #main-grid.orders-collapsed #orders-section > * { display: none; }
+    @media (max-width: 768px) { #main-grid { grid-template-columns: 1fr; height: auto; } }
   </style>
 </head>
-<body>
-  <header>
-    <h1>🛒 bot-mua-hang</h1>
-    <span id="connection-label" style="font-size:0.8rem;color:#64748b;">Connecting…</span>
-    <span id="login-badge" class="login-badge unknown">⬤ Checking…</span>
-    <button id="login-btn" onclick="loginShopee()" style="display:none">🔑 Login to Shopee</button>
-    <button id="start-btn" disabled onclick="startBot()">▶ Start</button>
-    <span id="status-dot"></span>
-  </header>
-  <div id="start-banner">⏳ Orders loaded — click <strong>Start</strong> to begin processing.</div>
+<body class="bg-surface-dark text-slate-200 min-h-screen font-[system-ui,sans-serif]">
 
-  <main>
-    <section id="orders-section">
-      <h2>Orders
-        <button id="reimport-btn" onclick="document.getElementById('upload-input').click()"
-          style="display:none;margin-left:0.75rem;padding:0.2rem 0.6rem;border-radius:0.35rem;border:1px solid #334155;background:transparent;color:#94a3b8;font-size:0.72rem;font-weight:600;cursor:pointer;">
-          ↑ Re-import
-        </button>
-        <button id="toggle-orders" onclick="toggleOrdersPanel()">◀ Hide</button>
-      </h2>
-      <input type="file" id="upload-input" accept=".xlsx,.xls" onchange="handleFileSelect(this)" />
-
-      <!-- Upload zone (shown when no orders) -->
-      <div id="upload-zone" class="visible">
-        <div id="drop-area" onclick="document.getElementById('upload-input').click()"
-             ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
-          <div class="icon">📂</div>
-          <strong style="color:#e2e8f0">Drop your Excel file here</strong>
-          <p>or click to browse — .xlsx / .xls</p>
-        </div>
-        <span id="upload-status"></span>
+  <!-- Navbar -->
+  <nav class="bg-surface border-b border-border">
+    <div class="px-4 sm:px-6 h-14 flex items-center gap-3">
+      <!-- Left: brand + breadcrumb -->
+      <div class="flex items-center gap-3 min-w-0">
+        <svg class="w-5 h-5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"/></svg>
+        <a href="/" class="text-heading font-bold text-lg hover:text-blue-400 transition-colors shrink-0">bot-mua-hang</a>
+        <svg class="w-4 h-4 text-slate-600 shrink-0 hidden sm:block" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+        <a href="/" class="text-sm text-muted hover:text-blue-400 transition-colors hidden sm:inline">Sessions</a>
+        <svg class="w-4 h-4 text-slate-600 shrink-0 hidden sm:block" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+        <span class="text-sm text-slate-300 hidden sm:inline" id="nav-session-label">Dashboard</span>
       </div>
 
-      <!-- Orders table (shown when orders loaded) -->
-      <div id="orders-table-wrap" style="display:none">
-        <table>
+      <!-- Right: actions -->
+      <div class="flex items-center gap-2 ml-auto">
+        <span id="connection-label" class="text-xs text-muted hidden sm:inline">Connecting...</span>
+        <span id="login-badge" class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-700 text-muted">Checking...</span>
+        <button id="login-btn" onclick="loginShopee()" style="display:none" class="btn-primary bg-orange-500 text-white hover:bg-orange-600 text-xs px-3 py-1.5">Login to Shopee</button>
+        <button id="start-btn" disabled onclick="startBot()" class="btn-primary bg-green-600 text-green-50 hover:bg-green-700 disabled:bg-slate-700 disabled:text-muted">Start</button>
+        <div id="status-dot" class="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0"></div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Start banner -->
+  <div id="start-banner" style="display:none" class="px-6 py-2.5 bg-blue-900/40 border-b border-blue-800 text-sm text-blue-300 text-center">
+    Orders loaded — click <strong>Start</strong> to begin processing.
+  </div>
+
+  <!-- Summary stat cards -->
+  <div id="summary-bar" style="display:none" class="border-b border-border">
+    <div class="px-4 sm:px-6 py-3">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3" id="stat-cards-row">
+        <div class="flex items-center gap-3 bg-green-900/20 border border-green-900/40 rounded-lg px-3 py-2.5">
+          <svg class="w-5 h-5 text-green-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+          <div>
+            <p class="text-lg font-bold text-green-400" id="stat-success">0</p>
+            <p class="text-[10px] text-muted uppercase tracking-wider">Success</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 bg-red-900/20 border border-red-900/40 rounded-lg px-3 py-2.5">
+          <svg class="w-5 h-5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+          <div>
+            <p class="text-lg font-bold text-red-400" id="stat-failed">0</p>
+            <p class="text-[10px] text-muted uppercase tracking-wider">Failed</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 bg-blue-900/20 border border-blue-900/40 rounded-lg px-3 py-2.5">
+          <svg class="w-5 h-5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"/></svg>
+          <div>
+            <p class="text-lg font-bold text-blue-400" id="stat-running">0</p>
+            <p class="text-[10px] text-muted uppercase tracking-wider">Running</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 bg-slate-800/50 border border-border rounded-lg px-3 py-2.5">
+          <svg class="w-5 h-5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+          <div>
+            <p class="text-lg font-bold text-slate-300" id="stat-pending">0</p>
+            <p class="text-[10px] text-muted uppercase tracking-wider">Pending</p>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-4">
+        <div class="flex-1 min-w-[200px]">
+          <div class="h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div id="progress-fill" class="h-full bg-gradient-to-r from-green-500 to-blue-500 rounded-full transition-all duration-500" style="width:0%"></div>
+          </div>
+          <p class="text-xs text-muted mt-1"><span id="progress-pct">0</span>% complete</p>
+        </div>
+        <span id="batch-label" class="text-xs text-muted"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="main-grid">
+    <!-- ═══ Orders section ═══ -->
+    <section id="orders-section" class="card overflow-hidden flex flex-col min-w-0 transition-opacity duration-300">
+      <div class="px-4 py-3 border-b border-border flex items-center gap-2">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-muted">Orders</h2>
+        <button id="reimport-btn" onclick="document.getElementById('upload-input').click()"
+          style="display:none"
+          class="ml-2 px-2.5 py-1 rounded-md border border-border text-xs font-medium text-muted hover:bg-surface-light hover:text-slate-200 transition-colors cursor-pointer">
+          Re-import
+        </button>
+        <button id="toggle-orders" onclick="toggleOrdersPanel()" class="ml-auto px-2.5 py-1 rounded-md border border-slate-600 text-xs text-muted hover:bg-surface-light hover:text-slate-200 transition-colors cursor-pointer">Hide</button>
+      </div>
+      <input type="file" id="upload-input" accept=".xlsx,.xls" onchange="handleFileSelect(this)" class="hidden" />
+
+      <!-- Upload zone -->
+      <div id="upload-zone" class="visible flex-1 flex-col items-center justify-center gap-4 p-8" style="display:flex">
+        <div id="drop-area" onclick="document.getElementById('upload-input').click()"
+             ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"
+             class="border-2 border-dashed border-border rounded-xl p-10 text-center cursor-pointer w-full max-w-md transition-all hover:border-blue-500 hover:bg-blue-950/20 group">
+          <svg class="mx-auto w-12 h-12 text-slate-500 mb-3 group-hover:text-blue-400 transition-colors group-hover:-translate-y-1 duration-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/></svg>
+          <p class="text-slate-200 font-semibold">Drop your Excel file here</p>
+          <p class="text-muted text-sm mt-1">or click to browse — .xlsx / .xls</p>
+        </div>
+        <span id="upload-status" class="text-sm text-muted"></span>
+      </div>
+
+      <!-- Filters bar -->
+      <div id="filters-bar" style="display:none" class="px-4 py-2.5 border-b border-border flex items-center gap-3 flex-wrap">
+        <span class="text-[10px] text-muted uppercase tracking-wider">Search:</span>
+        <input id="search-input" type="text" placeholder="Product name..." oninput="applyFilters()"
+          class="bg-surface-dark border border-border rounded-md px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-blue-500 w-44 transition-colors" />
+        <span class="text-[10px] text-muted uppercase tracking-wider">Status:</span>
+        <select id="status-filter" onchange="applyFilters()"
+          class="bg-surface-dark border border-border rounded-md px-2 py-1.5 text-sm text-slate-200 outline-none focus:border-blue-500 cursor-pointer">
+          <option value="">All</option>
+          <option value="pending">Pending</option>
+          <option value="running">Running</option>
+          <option value="success">Success</option>
+          <option value="failed">Failed</option>
+        </select>
+      </div>
+
+      <!-- Failure groups panel -->
+      <div id="failure-groups" style="display:none" class="border-b border-border">
+        <button id="fg-toggle" onclick="toggleFailureGroups()" class="w-full text-left px-4 py-2.5 text-xs font-semibold text-muted hover:text-slate-200 transition-colors flex items-center gap-2 cursor-pointer">
+          <span id="fg-arrow" class="text-[10px]">&#9654;</span> Failure Groups <span id="fg-count-label" class="text-muted font-normal"></span>
+        </button>
+        <div id="fg-list" style="display:none" class="px-4 pb-3"></div>
+      </div>
+
+      <!-- Orders table -->
+      <div id="orders-table-wrap" style="display:none" class="overflow-auto flex-1">
+        <table class="w-full text-sm">
           <thead>
-            <tr>
-              <th>#</th>
-              <th>Product</th>
-              <th>URL</th>
-              <th>Qty</th>
-              <th>Receiver</th>
-              <th>Status</th>
-              <th>Order ID</th>
-              <th>Actions</th>
+            <tr class="border-b border-border">
+              <th class="px-3 py-2.5 text-left text-xs font-semibold text-muted uppercase tracking-wider sticky top-0 bg-surface z-10">#</th>
+              <th class="px-3 py-2.5 text-left text-xs font-semibold text-muted uppercase tracking-wider sticky top-0 bg-surface z-10">Product</th>
+              <th class="px-3 py-2.5 text-left text-xs font-semibold text-muted uppercase tracking-wider sticky top-0 bg-surface z-10 hidden lg:table-cell">URL</th>
+              <th class="px-3 py-2.5 text-left text-xs font-semibold text-muted uppercase tracking-wider sticky top-0 bg-surface z-10 hidden lg:table-cell">Qty</th>
+              <th class="px-3 py-2.5 text-left text-xs font-semibold text-muted uppercase tracking-wider sticky top-0 bg-surface z-10 hidden lg:table-cell">Receiver</th>
+              <th class="px-3 py-2.5 text-left text-xs font-semibold text-muted uppercase tracking-wider sticky top-0 bg-surface z-10">Status</th>
+              <th class="px-3 py-2.5 text-left text-xs font-semibold text-muted uppercase tracking-wider sticky top-0 bg-surface z-10 hidden lg:table-cell">Retry</th>
+              <th class="px-3 py-2.5 text-left text-xs font-semibold text-muted uppercase tracking-wider sticky top-0 bg-surface z-10 hidden lg:table-cell">Order ID</th>
+              <th class="px-3 py-2.5 text-right text-xs font-semibold text-muted uppercase tracking-wider sticky top-0 bg-surface z-10">Actions</th>
             </tr>
           </thead>
           <tbody id="orders-tbody"></tbody>
         </table>
       </div>
-    </section>
-    <section id="preview-panel">
-      <div id="preview-title" style="display:flex;align-items:center;">
-        <span>Live Preview</span>
-        <button id="show-orders" onclick="toggleOrdersPanel()" style="display:none;background:none;border:1px solid #475569;color:#94a3b8;border-radius:0.3rem;padding:0.15rem 0.5rem;font-size:0.72rem;cursor:pointer;margin-left:auto;">▶ Orders</button>
-      </div>
-      <div id="screenshot-wrap">
-        <img id="screenshot-img" src="" alt="No screenshot yet" style="display:none" />
-        <span id="no-screenshot" style="color:#475569;font-size:0.85rem;">No active task</span>
-      </div>
-      <div id="reasoning-box"><strong>Reasoning:</strong> —</div>
-      <div id="step-counter">Step: —</div>
-      <div id="log-panel">
-        <div id="log-header">Console Logs</div>
-        <div id="log-content"></div>
-      </div>
-    </section>
-  </main>
 
-  <!-- OTP modal -->
-  <div id="otp-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;align-items:center;justify-content:center;">
-    <div style="background:#1e293b;border:1px solid #f97316;border-radius:0.75rem;width:360px;padding:1.75rem;text-align:center;">
-      <div style="font-size:2rem;margin-bottom:0.5rem;">🔐</div>
-      <h3 style="color:#f8fafc;margin-bottom:0.5rem;">OTP Required</h3>
-      <p style="color:#94a3b8;font-size:0.85rem;margin-bottom:1.25rem;">Enter the verification code sent to your phone/email to complete payment.</p>
-      <input id="otp-input" type="text" inputmode="numeric" maxlength="8" placeholder="Enter OTP…"
-        style="width:100%;background:#0f172a;border:1px solid #f97316;border-radius:0.4rem;padding:0.6rem 0.8rem;color:#f8fafc;font-size:1.25rem;text-align:center;letter-spacing:0.2em;outline:none;margin-bottom:1rem;" />
+      <!-- Pagination -->
+      <div id="pagination" style="display:none" class="px-4 py-2.5 border-t border-border flex items-center justify-center gap-3">
+        <button class="px-3 py-1.5 rounded-md bg-slate-700 text-sm text-slate-200 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer" id="page-prev" onclick="changePage(-1)">Prev</button>
+        <span class="text-xs text-muted" id="page-info">—</span>
+        <button class="px-3 py-1.5 rounded-md bg-slate-700 text-sm text-slate-200 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer" id="page-next" onclick="changePage(1)">Next</button>
+      </div>
+    </section>
+
+    <!-- ═══ Preview section ═══ -->
+    <section id="preview-panel" class="card overflow-hidden flex flex-col min-w-0">
+      <div id="preview-title" class="px-4 py-3 border-b border-border flex items-center">
+        <span class="text-xs font-semibold uppercase tracking-wider text-muted">Live Preview</span>
+        <button id="show-orders" onclick="toggleOrdersPanel()" style="display:none" class="ml-auto px-2.5 py-1 rounded-md border border-slate-600 text-xs text-muted hover:bg-surface-light hover:text-slate-200 transition-colors cursor-pointer">Orders</button>
+      </div>
+      <div id="screenshot-wrap" class="flex-1 flex items-center justify-center overflow-hidden bg-surface-dark p-2">
+        <img id="screenshot-img" src="" alt="No screenshot yet" style="display:none" class="max-w-full max-h-full rounded-lg object-contain" />
+        <span id="no-screenshot" class="text-slate-500 text-sm">No active task</span>
+      </div>
+      <div id="reasoning-box" class="px-4 py-3 border-t border-border text-sm text-muted min-h-[3rem] max-h-[5rem] overflow-auto"><strong class="text-slate-200">Reasoning:</strong> —</div>
+      <div id="step-counter" class="px-4 py-2 text-xs text-muted border-t border-border">Step: —</div>
+
+      <!-- Console logs (collapsible) -->
+      <div id="log-panel" class="border-t border-border flex flex-col flex-1 min-h-0">
+        <button id="log-toggle-btn" onclick="toggleLogs()" class="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 bg-surface hover:text-slate-300 transition-colors flex items-center gap-2 cursor-pointer w-full text-left">
+          <svg id="log-chevron" class="w-3.5 h-3.5 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+          Console Logs
+          <span id="log-count-badge" class="text-[10px] bg-slate-700 px-1.5 py-0.5 rounded-full text-muted">0</span>
+        </button>
+        <div id="log-content" style="display:none" class="flex-1 overflow-y-auto px-3 py-2 bg-[#0b1120] font-mono text-xs leading-relaxed text-muted min-h-[80px]"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ═══ OTP modal ═══ -->
+  <div id="otp-overlay" style="display:none" class="fixed inset-0 bg-black/70 z-[200] flex items-center justify-center">
+    <div class="card border-orange-500 w-[360px] max-w-[95vw] p-7 text-center">
+      <div class="mx-auto w-12 h-12 bg-orange-900/40 rounded-full flex items-center justify-center mb-4">
+        <svg class="w-6 h-6 text-orange-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/></svg>
+      </div>
+      <h3 class="text-heading font-bold text-lg mb-2">OTP Required</h3>
+      <p class="text-muted text-sm mb-5">Enter the verification code sent to your phone/email to complete payment.</p>
+      <input id="otp-input" type="text" inputmode="numeric" maxlength="8" placeholder="Enter OTP..."
+        class="w-full bg-surface-dark border border-orange-500 rounded-lg px-4 py-3 text-heading text-xl text-center tracking-[0.2em] outline-none focus:ring-2 focus:ring-orange-500/40 mb-4" />
       <button onclick="submitOtp()"
-        style="width:100%;padding:0.6rem;border-radius:0.4rem;border:none;background:#f97316;color:#fff;font-weight:700;font-size:1rem;cursor:pointer;">
+        class="w-full py-3 rounded-lg bg-orange-500 text-white font-bold text-base hover:bg-orange-600 transition-colors cursor-pointer">
         Submit OTP
       </button>
     </div>
   </div>
 
-  <!-- Edit modal -->
-  <div id="modal-overlay" onclick="closeModal(event)">
-    <div id="modal">
-      <h3>✏️ Edit Order</h3>
-      <input type="hidden" id="edit-row-index" />
-      <div class="field-group"><label>Product URL</label><input id="edit-product_url" type="url" /></div>
-      <div class="field-group"><label>Product Name</label><input id="edit-product_name" type="text" /></div>
-      <div class="field-group"><label>Product ID</label><input id="edit-product_id" type="text" /></div>
-      <div class="field-group"><label>Receiver Name</label><input id="edit-receiver_name" type="text" /></div>
-      <div class="field-group"><label>Phone Number</label><input id="edit-phone_number" type="text" /></div>
-      <div class="field-group"><label>Address</label><input id="edit-address" type="text" /></div>
-      <div class="field-group"><label>Quantity</label><input id="edit-quantity" type="number" min="1" /></div>
-      <div class="modal-actions">
-        <button class="btn-cancel" onclick="closeModal()">Cancel</button>
-        <button class="btn-save" onclick="saveEdit()">Save</button>
+  <!-- ═══ Edit modal ═══ -->
+  <div id="modal-overlay" class="fixed inset-0 bg-black/60 z-[100] hidden items-center justify-center" onclick="closeModal(event)">
+    <div id="modal" class="card w-[480px] max-w-[95vw] max-h-[90vh] overflow-y-auto p-6 relative">
+      <button onclick="closeModal()" class="absolute top-4 right-4 text-slate-500 hover:text-slate-200 transition-colors cursor-pointer">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+      </button>
+      <h3 class="text-heading font-bold text-base mb-5">Edit Order</h3>
+      <input type="hidden" id="edit-db-order-id" />
+      <div class="space-y-4">
+        <div><label class="block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5">Product URL</label><input id="edit-product_url" type="url" class="w-full bg-surface-dark border border-border rounded-lg px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-blue-500 transition-colors" /></div>
+        <div><label class="block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5">Product Name</label><input id="edit-product_name" type="text" class="w-full bg-surface-dark border border-border rounded-lg px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-blue-500 transition-colors" /></div>
+        <div><label class="block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5">Product ID</label><input id="edit-product_id" type="text" class="w-full bg-surface-dark border border-border rounded-lg px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-blue-500 transition-colors" /></div>
+        <div><label class="block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5">Receiver Name</label><input id="edit-receiver_name" type="text" class="w-full bg-surface-dark border border-border rounded-lg px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-blue-500 transition-colors" /></div>
+        <div><label class="block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5">Phone Number</label><input id="edit-phone_number" type="text" class="w-full bg-surface-dark border border-border rounded-lg px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-blue-500 transition-colors" /></div>
+        <div><label class="block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5">Address</label><input id="edit-address" type="text" class="w-full bg-surface-dark border border-border rounded-lg px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-blue-500 transition-colors" /></div>
+        <div><label class="block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5">Quantity</label><input id="edit-quantity" type="number" min="1" class="w-full bg-surface-dark border border-border rounded-lg px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-blue-500 transition-colors" /></div>
+      </div>
+      <div class="flex gap-3 justify-end mt-6">
+        <button class="px-4 py-2 rounded-lg border border-border text-muted font-semibold text-sm hover:bg-surface-light transition-colors cursor-pointer" onclick="closeModal()">Cancel</button>
+        <button class="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 transition-colors cursor-pointer" onclick="saveEdit()">Save</button>
       </div>
     </div>
   </div>
 
+  <!-- ═══ Completion summary ═══ -->
+  <div id="completion-overlay" class="fixed inset-0 bg-black/70 z-[150] hidden items-center justify-center" onclick="dismissCompletion(event)">
+    <div id="completion-card" class="card w-[540px] max-w-[95vw] max-h-[90vh] overflow-y-auto p-8 text-center">
+      <div class="mx-auto w-14 h-14 bg-green-900/40 rounded-full flex items-center justify-center mb-4">
+        <svg class="w-7 h-7 text-green-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+      </div>
+      <div class="text-2xl font-bold text-heading mb-6">Processing Complete</div>
+      <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="card p-4">
+          <p class="text-3xl font-bold text-green-400" id="comp-success">0</p>
+          <p class="text-xs text-muted uppercase tracking-wider mt-1">Success</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-3xl font-bold text-red-400" id="comp-failed">0</p>
+          <p class="text-xs text-muted uppercase tracking-wider mt-1">Failed</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-3xl font-bold text-blue-400" id="comp-total">0</p>
+          <p class="text-xs text-muted uppercase tracking-wider mt-1">Total</p>
+        </div>
+      </div>
+      <div id="completion-failures" class="text-left"></div>
+      <button class="mt-6 px-6 py-2.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors cursor-pointer" onclick="dismissCompletion()">Dismiss</button>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-[300] flex flex-col gap-2 pointer-events-none"></div>
+
   <script>
+    // ── Session ID from URL ─────────────────────────────────────
+    const pathParts = location.pathname.split('/');
+    const sessionId = parseInt(pathParts[pathParts.indexOf('sessions') + 1]) || 0;
+    let isActiveSession = false;
+    let isHistorical = false;
+
+    document.getElementById('nav-session-label').textContent = 'Session #' + sessionId;
+
     const dot = document.getElementById('status-dot');
     const connLabel = document.getElementById('connection-label');
     const tbody = document.getElementById('orders-tbody');
@@ -216,15 +316,67 @@
     const loginBadge = document.getElementById('login-badge');
     const loginBtn = document.getElementById('login-btn');
     const logContent = document.getElementById('log-content');
+    const summaryBar = document.getElementById('summary-bar');
+    const filtersBar = document.getElementById('filters-bar');
+    const failureGroupsPanel = document.getElementById('failure-groups');
+    const paginationEl = document.getElementById('pagination');
+    const completionOverlay = document.getElementById('completion-overlay');
 
     let currentOrders = [];
     let lastLogCount = 0;
     let ordersCollapsed = false;
+    let currentPage = 1;
+    const PAGE_SIZE = 50;
+    let searchFilter = '';
+    let statusFilter = '';
+    let noteFilter = '';
+    let fgOpen = false;
+    let completionShown = false;
+    let lastMaxRetries = 2;
+    let logsOpen = false;
+
+    // ── Toast ─────────────────────────────────────────────────────
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const colors = {
+        success: 'bg-green-900/90 text-green-200 border-green-700',
+        error: 'bg-red-900/90 text-red-200 border-red-700',
+        info: 'bg-blue-900/90 text-blue-200 border-blue-700',
+        warning: 'bg-amber-900/90 text-amber-200 border-amber-700',
+      };
+      const icons = {
+        success: '<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>',
+        error: '<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>',
+        info: '<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z"/></svg>',
+        warning: '<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>',
+      };
+      const toast = document.createElement('div');
+      toast.className = `${colors[type] || colors.info} border rounded-lg px-4 py-3 text-sm font-medium shadow-lg pointer-events-auto flex items-center gap-2 transform translate-x-[120%] transition-transform duration-300`;
+      toast.innerHTML = (icons[type] || '') + `<span>${message}</span>`;
+      container.appendChild(toast);
+      requestAnimationFrame(() => { toast.style.transform = 'translateX(0)'; });
+      setTimeout(() => {
+        toast.style.transform = 'translateX(120%)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    // ── Console logs toggle ───────────────────────────────────────
+    function toggleLogs() {
+      logsOpen = !logsOpen;
+      const chevron = document.getElementById('log-chevron');
+      if (logsOpen) {
+        logContent.style.display = '';
+        chevron.style.transform = 'rotate(90deg)';
+      } else {
+        logContent.style.display = 'none';
+        chevron.style.transform = '';
+      }
+    }
 
     function toggleOrdersPanel() {
       ordersCollapsed = !ordersCollapsed;
-      const mainEl = document.querySelector('main');
-      const toggleBtn = document.getElementById('toggle-orders');
+      const mainEl = document.getElementById('main-grid');
       const showBtn = document.getElementById('show-orders');
       if (ordersCollapsed) {
         mainEl.classList.add('orders-collapsed');
@@ -236,11 +388,16 @@
     }
 
     // ── Upload handlers ──────────────────────────────────────────
-    function onDragOver(e) { e.preventDefault(); document.getElementById('drop-area').classList.add('drag-over'); }
-    function onDragLeave(e) { document.getElementById('drop-area').classList.remove('drag-over'); }
+    function onDragOver(e) {
+      e.preventDefault();
+      document.getElementById('drop-area').classList.add('border-blue-500', 'bg-blue-950/20');
+    }
+    function onDragLeave(e) {
+      document.getElementById('drop-area').classList.remove('border-blue-500', 'bg-blue-950/20');
+    }
     function onDrop(e) {
       e.preventDefault();
-      document.getElementById('drop-area').classList.remove('drag-over');
+      document.getElementById('drop-area').classList.remove('border-blue-500', 'bg-blue-950/20');
       const f = e.dataTransfer.files[0];
       if (f) uploadFile(f);
     }
@@ -248,27 +405,33 @@
       if (input.files[0]) uploadFile(input.files[0]);
     }
     async function uploadFile(file) {
-      uploadStatus.textContent = `Uploading ${file.name}…`;
+      uploadStatus.textContent = `Uploading ${file.name}...`;
       const fd = new FormData();
       fd.append('file', file);
       try {
-        const res = await fetch('/upload', { method: 'POST', body: fd });
+        const res = await fetch(`/api/sessions/${sessionId}/upload`, { method: 'POST', body: fd });
         const data = await res.json();
-        uploadStatus.textContent = `✓ Loaded ${data.count} order(s)`;
+        uploadStatus.textContent = `Loaded ${data.count} order(s)`;
+        showToast(`Uploaded ${file.name} — ${data.count} order(s) loaded`, 'success');
       } catch {
-        uploadStatus.textContent = '✗ Upload failed. Please try again.';
+        uploadStatus.textContent = 'Upload failed. Please try again.';
+        showToast('Upload failed. Please try again.', 'error');
       }
     }
 
     function toggleOrdersView(hasOrders) {
       if (hasOrders) {
+        uploadZone.style.display = 'none';
         uploadZone.classList.remove('visible');
         ordersTableWrap.style.display = '';
         reimportBtn.style.display = '';
+        filtersBar.style.display = 'flex';
       } else {
+        uploadZone.style.display = 'flex';
         uploadZone.classList.add('visible');
         ordersTableWrap.style.display = 'none';
         reimportBtn.style.display = 'none';
+        filtersBar.style.display = 'none';
       }
     }
 
@@ -295,6 +458,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ otp }),
       });
+      showToast('OTP submitted', 'info');
     }
 
     document.getElementById('otp-input').addEventListener('keydown', e => {
@@ -303,49 +467,152 @@
 
     // ── Login ───────────────────────────────────────────────────
     function updateLoginStatus(status) {
-      loginBadge.className = 'login-badge ' + (status === 'logged_in' ? 'logged-in' : status === 'logged_out' ? 'logged-out' : 'unknown');
       if (status === 'logged_in') {
-        loginBadge.textContent = '✓ Logged in';
+        loginBadge.className = 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-900 text-green-300';
+        loginBadge.textContent = 'Logged in';
         loginBtn.style.display = 'none';
       } else if (status === 'logged_out') {
-        loginBadge.textContent = '✗ Not logged in';
+        loginBadge.className = 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-900 text-red-300';
+        loginBadge.textContent = 'Not logged in';
         loginBtn.style.display = '';
         loginBtn.disabled = false;
-        loginBtn.textContent = '🔑 Login to Shopee';
+        loginBtn.textContent = 'Login to Shopee';
       } else {
-        loginBadge.textContent = '⬤ Checking…';
+        loginBadge.className = 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-700 text-muted';
+        loginBadge.textContent = 'Checking...';
         loginBtn.style.display = 'none';
       }
     }
 
     async function loginShopee() {
       loginBtn.disabled = true;
-      loginBtn.textContent = '⏳ Opening…';
+      loginBtn.textContent = 'Opening...';
       await fetch('/login', { method: 'POST' });
     }
 
     // ── Start button ────────────────────────────────────────────
     function updateStartButton(started, hasOrders) {
+      if (isHistorical) {
+        startBtn.disabled = true;
+        startBtn.textContent = 'Completed';
+        startBanner.style.display = 'none';
+        return;
+      }
       if (started) {
         startBtn.disabled = true;
-        startBtn.textContent = '⏳ Running…';
+        startBtn.textContent = 'Running...';
         startBanner.style.display = 'none';
       } else if (hasOrders) {
         startBtn.disabled = false;
-        startBtn.textContent = '▶ Start';
+        startBtn.textContent = 'Start';
         startBanner.style.display = 'block';
       } else {
         startBtn.disabled = true;
-        startBtn.textContent = '▶ Start';
+        startBtn.textContent = 'Start';
         startBanner.style.display = 'none';
       }
     }
 
     async function startBot() {
       startBtn.disabled = true;
-      startBtn.textContent = '⏳ Starting…';
-      try { await fetch('/start', { method: 'POST' }); }
-      catch { startBtn.disabled = false; startBtn.textContent = '▶ Start'; }
+      startBtn.textContent = 'Starting...';
+      try { await fetch(`/api/sessions/${sessionId}/start`, { method: 'POST' }); }
+      catch { startBtn.disabled = false; startBtn.textContent = 'Start'; }
+    }
+
+    // ── Summary bar ──────────────────────────────────────────────
+    function updateSummary(data) {
+      const s = data.summary;
+      if (!s || s.total === 0) {
+        summaryBar.style.display = 'none';
+        return;
+      }
+      summaryBar.style.display = '';
+
+      const done = s.success + s.failed;
+      const pct = s.total > 0 ? Math.round((done / s.total) * 100) : 0;
+      document.getElementById('progress-fill').style.width = pct + '%';
+      document.getElementById('progress-pct').textContent = pct;
+      document.getElementById('stat-success').textContent = s.success;
+      document.getElementById('stat-failed').textContent = s.failed;
+      document.getElementById('stat-running').textContent = s.running;
+      document.getElementById('stat-pending').textContent = s.pending;
+
+      const bi = data.batch_info;
+      if (bi && bi.total > 0) {
+        document.getElementById('batch-label').textContent = `Batch ${bi.current}/${bi.total} (size ${bi.batch_size})`;
+      } else {
+        document.getElementById('batch-label').textContent = '';
+      }
+    }
+
+    // ── Filters ──────────────────────────────────────────────────
+    function applyFilters() {
+      searchFilter = document.getElementById('search-input').value.trim().toLowerCase();
+      statusFilter = document.getElementById('status-filter').value;
+      currentPage = 1;
+      renderOrders(currentOrders);
+    }
+
+    function setNoteFilter(reason) {
+      noteFilter = reason;
+      statusFilter = 'failed';
+      document.getElementById('status-filter').value = 'failed';
+      currentPage = 1;
+      renderOrders(currentOrders);
+    }
+
+    function clearNoteFilter() {
+      noteFilter = '';
+      applyFilters();
+    }
+
+    function getFilteredOrders(orders) {
+      return orders.filter(o => {
+        if (searchFilter && !(o.product_name || '').toLowerCase().includes(searchFilter)) return false;
+        if (statusFilter && o.status !== statusFilter) return false;
+        if (noteFilter && !(o.note || '').startsWith(noteFilter)) return false;
+        return true;
+      });
+    }
+
+    // ── Failure groups ───────────────────────────────────────────
+    function toggleFailureGroups() {
+      fgOpen = !fgOpen;
+      const fgList = document.getElementById('fg-list');
+      fgList.style.display = fgOpen ? '' : 'none';
+      document.getElementById('fg-arrow').innerHTML = fgOpen ? '&#9660;' : '&#9654;';
+    }
+
+    function updateFailureGroups(groups) {
+      if (!groups || groups.length === 0) {
+        failureGroupsPanel.style.display = 'none';
+        return;
+      }
+      failureGroupsPanel.style.display = '';
+      document.getElementById('fg-count-label').textContent = `(${groups.length} types)`;
+
+      const hasRetryable = groups.some(g => g.category === 'retryable');
+      const retryBtnHtml = hasRetryable
+        ? `<button id="retry-all-btn" onclick="retryAll()" class="px-3 py-1.5 rounded-md bg-purple-600 text-purple-100 text-xs font-semibold hover:bg-purple-700 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">Retry All</button>`
+        : '';
+
+      const fgList = document.getElementById('fg-list');
+      fgList.innerHTML = groups.map(g =>
+        `<div class="flex items-center gap-2.5 py-1.5 text-xs">
+          <span class="bg-red-900 text-red-300 rounded-full px-2 py-0.5 font-bold text-[11px] min-w-[24px] text-center">${g.count}</span>
+          <span class="flex-1 text-slate-200">${esc(g.reason)}</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${g.category === 'retryable' ? 'bg-amber-900/60 text-amber-300' : 'bg-red-900/60 text-red-300'}">${g.category}</span>
+          <button class="px-2 py-0.5 rounded border border-slate-600 text-muted text-[10px] hover:bg-surface-light hover:text-slate-200 transition-colors cursor-pointer" onclick="setNoteFilter('${esc(g.reason)}')">Show</button>
+        </div>`
+      ).join('') + (retryBtnHtml ? `<div class="mt-2 text-right">${retryBtnHtml}</div>` : '');
+    }
+
+    async function retryAll() {
+      const btn = document.getElementById('retry-all-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Retrying...'; }
+      await fetch(`/api/sessions/${sessionId}/retry-all`, { method: 'POST' });
+      showToast('Retry all failed orders queued', 'info');
     }
 
     // ── Orders table ─────────────────────────────────────────────
@@ -355,40 +622,87 @@
 
     function renderOrders(orders) {
       if (!orders || orders.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="no-orders">No orders loaded.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-500">No orders loaded.</td></tr>';
+        paginationEl.style.display = 'none';
         return;
       }
-      tbody.innerHTML = orders.map(o => {
+
+      const filtered = getFilteredOrders(orders);
+      const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+      if (currentPage > totalPages) currentPage = totalPages;
+
+      const start = (currentPage - 1) * PAGE_SIZE;
+      const end = Math.min(start + PAGE_SIZE, filtered.length);
+      const pageOrders = filtered.slice(start, end);
+
+      if (noteFilter) {
+        tbody.innerHTML = `<tr><td colspan="9" class="px-3 py-2 text-xs">
+          <span class="text-muted">Filtered by: "${esc(noteFilter)}"</span>
+          <button onclick="clearNoteFilter()" class="ml-2 px-2 py-0.5 rounded border border-slate-600 text-muted text-[10px] hover:bg-surface-light cursor-pointer">Clear</button>
+        </td></tr>` + renderOrderRows(pageOrders);
+      } else {
+        tbody.innerHTML = renderOrderRows(pageOrders);
+      }
+
+      // Pagination
+      if (filtered.length > PAGE_SIZE) {
+        paginationEl.style.display = 'flex';
+        document.getElementById('page-prev').disabled = currentPage <= 1;
+        document.getElementById('page-next').disabled = currentPage >= totalPages;
+        document.getElementById('page-info').textContent = `Showing ${start + 1}-${end} of ${filtered.length}`;
+      } else {
+        paginationEl.style.display = 'none';
+      }
+    }
+
+    function renderOrderRows(orders) {
+      if (orders.length === 0) {
+        return '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-500">No matching orders.</td></tr>';
+      }
+      return orders.map(o => {
+        const dbId = o.db_order_id || o.id;
         const rebuyDisabled = o.status === 'running' ? 'disabled' : '';
-        return `<tr>
-          <td>${o.row_index}</td>
-          <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.product_name)}">${esc(o.product_name) || '—'}</td>
-          <td class="url-cell"><a href="${esc(o.product_url)}" target="_blank">${esc(o.product_url)}</a></td>
-          <td>${o.quantity ?? '—'}</td>
-          <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.receiver_name)}">${esc(o.receiver_name) || '—'}</td>
-          <td>${statusBadge(o.status)}</td>
-          <td style="font-size:0.75rem;color:#94a3b8">${esc(o.order_id) || '—'}</td>
-          <td><div class="action-cell">
-            <button class="btn-sm btn-edit" onclick="openEdit(${o.row_index})">✏️ Edit</button>
-            <button class="btn-sm btn-rebuy" ${rebuyDisabled} onclick="rebuy(${o.row_index}, this)">🔄 Re-buy</button>
-          </div></td>
+        const retryDisplay = o.retry_count > 0 ? `${o.retry_count}/${lastMaxRetries}` : '';
+        const nameHtml = dbId
+          ? `<a href="/orders/${dbId}" class="text-slate-200 hover:text-blue-400 transition-colors" title="${esc(o.product_name)}">${esc(o.product_name) || '—'}</a>`
+          : (esc(o.product_name) || '—');
+        return `<tr class="border-t border-border hover:bg-surface-light transition-colors">
+          <td class="px-3 py-2.5 text-xs text-muted font-mono">${o.row_index}</td>
+          <td class="px-3 py-2.5 max-w-[140px] truncate">${nameHtml}</td>
+          <td class="px-3 py-2.5 hidden lg:table-cell"><div class="max-w-[160px] truncate"><a href="${esc(o.product_url)}" target="_blank" class="text-blue-400 hover:underline text-xs">${esc(o.product_url)}</a></div></td>
+          <td class="px-3 py-2.5 hidden lg:table-cell text-sm">${o.quantity ?? '—'}</td>
+          <td class="px-3 py-2.5 hidden lg:table-cell max-w-[110px] truncate text-sm" title="${esc(o.receiver_name)}">${esc(o.receiver_name) || '—'}</td>
+          <td class="px-3 py-2.5">${statusBadge(o.status)}${o.note ? `<div class="text-[11px] text-muted mt-0.5 max-w-[150px] truncate" title="${esc(o.note)}">${esc(o.note)}</div>` : ''}</td>
+          <td class="px-3 py-2.5 hidden lg:table-cell text-xs text-muted">${retryDisplay}</td>
+          <td class="px-3 py-2.5 hidden lg:table-cell text-xs text-muted">${esc(o.order_id) || '—'}</td>
+          <td class="px-3 py-2.5 text-right">
+            <div class="flex gap-1.5 justify-end">
+              <button class="px-2.5 py-1 rounded-md bg-blue-800 text-blue-200 text-xs font-semibold hover:bg-blue-700 transition-colors cursor-pointer" onclick="openEdit(${dbId})">Edit</button>
+              <button class="px-2.5 py-1 rounded-md bg-purple-700 text-purple-200 text-xs font-semibold hover:bg-purple-600 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" ${rebuyDisabled} onclick="rebuy(${dbId}, this)">Re-buy</button>
+            </div>
+          </td>
         </tr>`;
       }).join('');
     }
 
+    function changePage(delta) {
+      currentPage += delta;
+      renderOrders(currentOrders);
+    }
+
     function esc(s) {
       if (!s) return '';
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
     // ── Live preview ─────────────────────────────────────────────
     function updatePreview(orders) {
-      const active = orders.find(o => o.status === 'running');
-      if (active && active.last_screenshot_b64) {
+      const active = orders.find(o => o.status === 'running' && o.last_screenshot_b64);
+      if (active) {
         screenshotImg.src = 'data:image/png;base64,' + active.last_screenshot_b64;
         screenshotImg.style.display = '';
         noScreenshot.style.display = 'none';
-        reasoningBox.innerHTML = `<strong>Reasoning:</strong> ${esc(active.last_reasoning) || '…'}`;
+        reasoningBox.innerHTML = `<strong class="text-slate-200">Reasoning:</strong> ${esc(active.last_reasoning) || '...'}`;
         stepCounter.textContent = `Step: ${active.current_step}`;
       } else {
         screenshotImg.style.display = 'none';
@@ -399,39 +713,42 @@
     // ── Console logs ──────────────────────────────────────────────
     function updateLogs(logs) {
       if (!logs || logs.length === 0) return;
-      // Only append new entries
       const newLogs = logs.slice(lastLogCount);
       lastLogCount = logs.length;
+      document.getElementById('log-count-badge').textContent = logs.length;
       for (const line of newLogs) {
         const div = document.createElement('div');
-        div.className = 'log-line';
-        if (/\[WARNING\]/.test(line)) div.classList.add('warn');
-        else if (/\[ERROR\]/.test(line)) div.classList.add('error');
+        div.className = 'whitespace-pre-wrap break-all';
+        if (/\[WARNING\]/.test(line)) div.classList.add('text-amber-400');
+        else if (/\[ERROR\]/.test(line)) div.classList.add('text-red-400');
         div.textContent = line;
         logContent.appendChild(div);
       }
-      // Keep max 500 DOM nodes
       while (logContent.children.length > 500) logContent.removeChild(logContent.firstChild);
       logContent.scrollTop = logContent.scrollHeight;
     }
 
     // ── Edit modal ───────────────────────────────────────────────
-    function openEdit(rowIndex) {
-      const o = currentOrders.find(x => x.row_index === rowIndex);
+    function openEdit(dbOrderId) {
+      const o = currentOrders.find(x => (x.db_order_id || x.id) === dbOrderId);
       if (!o) return;
-      document.getElementById('edit-row-index').value = rowIndex;
+      document.getElementById('edit-db-order-id').value = dbOrderId;
       ['product_url','product_name','product_id','receiver_name','phone_number','address','quantity'].forEach(f => {
         document.getElementById('edit-' + f).value = o[f] ?? '';
       });
-      modalOverlay.classList.add('open');
+      modalOverlay.classList.remove('hidden');
+      modalOverlay.classList.add('flex');
     }
 
     function closeModal(evt) {
-      if (!evt || evt.target === modalOverlay) modalOverlay.classList.remove('open');
+      if (!evt || evt.target === modalOverlay || evt.target.closest('button[onclick="closeModal()"]')) {
+        modalOverlay.classList.remove('flex');
+        modalOverlay.classList.add('hidden');
+      }
     }
 
     async function saveEdit() {
-      const rowIndex = parseInt(document.getElementById('edit-row-index').value);
+      const dbOrderId = parseInt(document.getElementById('edit-db-order-id').value);
       const body = {};
       ['product_url','product_name','product_id','receiver_name','phone_number','address'].forEach(f => {
         const v = document.getElementById('edit-' + f).value.trim();
@@ -440,51 +757,155 @@
       const qty = parseInt(document.getElementById('edit-quantity').value);
       if (qty > 0) body.quantity = qty;
 
-      modalOverlay.classList.remove('open');
-      await fetch(`/orders/${rowIndex}`, {
+      modalOverlay.classList.remove('flex');
+      modalOverlay.classList.add('hidden');
+      await fetch(`/api/orders/${dbOrderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      showToast('Order updated', 'success');
+
+      // If historical, re-fetch orders
+      if (isHistorical) loadHistoricalOrders();
     }
 
     // ── Re-buy ───────────────────────────────────────────────────
-    async function rebuy(rowIndex, btn) {
+    async function rebuy(dbOrderId, btn) {
       btn.disabled = true;
-      btn.textContent = '⏳';
-      await fetch(`/orders/${rowIndex}/rebuy`, { method: 'POST' });
+      btn.textContent = '...';
+      await fetch(`/api/orders/${dbOrderId}/rebuy`, { method: 'POST' });
+      showToast('Re-buy queued for order', 'info');
     }
 
-    // ── WebSocket ────────────────────────────────────────────────
+    // ── Completion card ──────────────────────────────────────────
+    function showCompletion(data) {
+      if (!data.completed || completionShown) return;
+      completionShown = true;
+
+      const s = data.summary || {};
+      document.getElementById('comp-success').textContent = s.success || 0;
+      document.getElementById('comp-failed').textContent = s.failed || 0;
+      document.getElementById('comp-total').textContent = s.total || 0;
+
+      const failDiv = document.getElementById('completion-failures');
+      const groups = data.failure_groups || [];
+      if (groups.length > 0) {
+        failDiv.innerHTML = '<table class="w-full text-xs mt-2"><thead><tr><th class="text-muted py-2 text-left border-b border-border">Count</th><th class="text-muted py-2 text-left border-b border-border">Reason</th><th class="text-muted py-2 text-left border-b border-border">Type</th></tr></thead><tbody>' +
+          groups.map(g => `<tr><td class="py-2 border-b border-surface">${g.count}</td><td class="py-2 border-b border-surface">${esc(g.reason)}</td><td class="py-2 border-b border-surface"><span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${g.category === 'retryable' ? 'bg-amber-900/60 text-amber-300' : 'bg-red-900/60 text-red-300'}">${g.category}</span></td></tr>`).join('') +
+          '</tbody></table>';
+      } else {
+        failDiv.innerHTML = '';
+      }
+
+      completionOverlay.classList.remove('hidden');
+      completionOverlay.classList.add('flex');
+    }
+
+    function dismissCompletion(evt) {
+      if (!evt || evt.target === completionOverlay || evt.target.closest('.btn-dismiss') || evt.target.closest('button[onclick="dismissCompletion()"]')) {
+        completionOverlay.classList.remove('flex');
+        completionOverlay.classList.add('hidden');
+      }
+    }
+
+    // ── Historical mode (completed sessions) ────────────────────
+    async function loadHistoricalOrders() {
+      try {
+        const res = await fetch(`/api/sessions/${sessionId}/orders`);
+        const orders = await res.json();
+        currentOrders = orders;
+        toggleOrdersView(orders.length > 0);
+        renderOrders(orders);
+
+        // Build summary from order data
+        const total = orders.length;
+        const success = orders.filter(o => o.status === 'success').length;
+        const failed = orders.filter(o => o.status === 'failed').length;
+        const running = orders.filter(o => o.status === 'running').length;
+        const pending = orders.filter(o => o.status === 'pending').length;
+        updateSummary({ summary: { total, success, failed, running, pending }, batch_info: {} });
+
+        // Build failure groups
+        const fgMap = {};
+        orders.forEach(o => {
+          if (o.status === 'failed' && o.note) {
+            const key = o.note.split(':')[0] || o.note;
+            if (!fgMap[key]) fgMap[key] = { reason: key, category: o.failure_category || 'retryable', count: 0 };
+            fgMap[key].count++;
+          }
+        });
+        updateFailureGroups(Object.values(fgMap));
+      } catch { /* ignore */ }
+    }
+
+    // ── WebSocket (active mode) ─────────────────────────────────
     function connect() {
       const ws = new WebSocket(`ws://${location.host}/ws`);
       ws.onopen = () => {
-        dot.classList.add('connected');
+        dot.classList.remove('bg-red-500');
+        dot.classList.add('bg-green-500');
         connLabel.textContent = 'Connected';
         lastLogCount = 0;
         logContent.innerHTML = '';
       };
       ws.onmessage = (evt) => {
         const data = JSON.parse(evt.data);
-        currentOrders = data.orders || [];
-        toggleOrdersView(currentOrders.length > 0);
-        renderOrders(currentOrders);
-        updatePreview(currentOrders);
-        updateLoginStatus(data.login_status);
-        updateStartButton(data.started, currentOrders.length > 0);
-        updateOtpModal(data.otp_requested);
-        updateLogs(data.logs);
+
+        // Check if this session is the active one
+        isActiveSession = data.session_id === sessionId;
+
+        if (isActiveSession) {
+          // Active mode — use WebSocket data
+          isHistorical = false;
+          currentOrders = data.orders || [];
+          lastMaxRetries = data.max_retries || 2;
+
+          if (!data.completed) completionShown = false;
+
+          toggleOrdersView(currentOrders.length > 0);
+          renderOrders(currentOrders);
+          updatePreview(currentOrders);
+          updateLoginStatus(data.login_status);
+          updateStartButton(data.started, currentOrders.length > 0);
+          updateOtpModal(data.otp_requested);
+          updateLogs(data.logs);
+          updateSummary(data);
+          updateFailureGroups(data.failure_groups);
+          showCompletion(data);
+        } else {
+          // Not the active session — just update login status
+          updateLoginStatus(data.login_status);
+        }
       };
       ws.onclose = () => {
-        dot.classList.remove('connected');
-        connLabel.textContent = 'Disconnected — reconnecting…';
+        dot.classList.remove('bg-green-500');
+        dot.classList.add('bg-red-500');
+        connLabel.textContent = 'Disconnected — reconnecting...';
         setTimeout(connect, 3000);
       };
       ws.onerror = () => ws.close();
     }
 
+    // ── Initialize ──────────────────────────────────────────────
+    async function init() {
+      // Check session status to decide mode
+      try {
+        const res = await fetch(`/api/sessions/${sessionId}`);
+        const session = await res.json();
+        if (session.status === 'completed') {
+          isHistorical = true;
+          updateStartButton(false, false);
+          loadHistoricalOrders();
+        }
+      } catch { /* proceed with live mode */ }
+
+      // Always connect WebSocket for live updates and login status
+      connect();
+    }
+
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-    connect();
+    init();
   </script>
 </body>
 </html>

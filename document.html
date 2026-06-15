@@ -114,9 +114,10 @@
     <h2>Usage</h2>
     <ul>
       <li><a href="#running">Running the bot</a></li>
+      <li><a href="#cdp-mode">CDP mode (recommended)</a></li>
       <li><a href="#login">Shopee login</a></li>
       <li><a href="#excel">Excel file format</a></li>
-      <li><a href="#checkout-flow">Checkout flow</a></li>
+      <li><a href="#add-to-cart-flow">Add to Cart flow</a></li>
       <li><a href="#otp">OTP handling</a></li>
       <li><a href="#rebuy">Re-buy</a></li>
     </ul>
@@ -128,8 +129,10 @@
     <h2>Internals</h2>
     <ul>
       <li><a href="#modules">Module reference</a></li>
+      <li><a href="#vision-pipeline">Vision pipeline</a></li>
       <li><a href="#anti-bot">Anti-bot strategy</a></li>
       <li><a href="#session">Session persistence</a></li>
+      <li><a href="#debugging">Debugging</a></li>
     </ul>
   </nav>
 
@@ -139,28 +142,27 @@
     <!-- Hero -->
     <section id="overview">
       <h1>bot-mua-hang</h1>
-      <p class="subtitle">An AI-powered Shopee shopping bot that reads gift orders from an Excel file and autonomously completes the full checkout flow using a Vision LLM.</p>
+      <p class="subtitle">An AI-powered Shopee shopping bot that reads orders from an Excel file and autonomously adds products to cart using a Vision LLM with element-level detection. All order data is persisted in SQLite with multi-session support.</p>
 
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1.5rem;">
         <span class="badge badge-blue">Python 3.11+</span>
         <span class="badge badge-green">Patchright (Playwright)</span>
         <span class="badge badge-orange">Gemma-4-31B-IT (VNG Cloud)</span>
-        <span class="badge badge-purple">FastAPI dashboard</span>
+        <span class="badge badge-purple">FastAPI + SQLite</span>
         <span class="badge badge-gray">shopee.vn</span>
       </div>
 
       <div class="card">
         <h3 style="margin-top:0">Business context</h3>
-        <p>VNG marketing team sends gifts to users. Previously, the purchasing team manually bought each gift on Shopee — taking up to 60 days. This bot reduces the end-to-end time to 10–15 days by automating the full checkout process, including receiver details, seller notes, VAT invoice, cheapest shipping, voucher selection, credit card payment, and OTP verification.</p>
+        <p>VNG marketing team sends gifts to users. Previously, the purchasing team manually bought each gift on Shopee — taking up to 60 days. This bot automates the add-to-cart process by selecting the correct product variants (size, color) and adding items to the shopping cart, reducing manual effort significantly.</p>
       </div>
 
       <h3>How it works</h3>
       <ol class="steps">
-        <li><div class="step-body"><strong>Import orders</strong><span>Upload an Excel file via the dashboard UI. Each row is one gift order with product URL, receiver info, and quantity.</span></div></li>
-        <li><div class="step-body"><strong>Login to Shopee</strong><span>Click "Login to Shopee" in the dashboard. The browser opens Shopee's login page. After login, the session is saved to disk.</span></div></li>
-        <li><div class="step-body"><strong>Click Start</strong><span>The bot opens each product URL, and the Vision LLM (Gemma-4-31B-IT) analyzes screenshots step by step to drive the checkout.</span></div></li>
-        <li><div class="step-body"><strong>OTP (if required)</strong><span>When Shopee asks for a card OTP, the dashboard shows a popup — the user types the code and the bot continues.</span></div></li>
-        <li><div class="step-body"><strong>Status written back</strong><span>After each order, the Excel file is updated with <code>success</code>/<code>failed</code> status and the Shopee order ID.</span></div></li>
+        <li><div class="step-body"><strong>Import orders</strong><span>Upload an Excel file via the dashboard UI. Each row is one gift order with product URL, variant/size/color, and quantity.</span></div></li>
+        <li><div class="step-body"><strong>Login to Shopee</strong><span>Either use CDP mode (connect to your real Chrome) or click "Login to Shopee" in the dashboard. Session is saved to disk.</span></div></li>
+        <li><div class="step-body"><strong>Click Start</strong><span>The bot opens each product URL, extracts interactive elements via JavaScript, and the Vision LLM picks elements by number to select variants and add to cart.</span></div></li>
+        <li><div class="step-body"><strong>Status persisted to SQLite</strong><span>After each order, the status, screenshots, and step-by-step reasoning are saved to <code>data/bot.db</code>. All data persists across restarts and is browsable in the dashboard.</span></div></li>
       </ol>
     </section>
 
@@ -174,15 +176,15 @@
 │  │  FastAPI dashboard│    │     _run_bot() (async)   │   │
 │  │  (daemon thread) │    │                          │   │
 │  │  port 8081       │◄──►│  BrowserManager          │   │
-│  │                  │    │  (patchright Chromium)   │   │
-│  │  WebSocket /ws   │    │                          │   │
-│  │  POST /upload    │    │  VisionAgent             │   │
-│  │  POST /login     │    │  (VNG Cloud Gemma LLM)   │   │
-│  │  POST /start     │    │                          │   │
-│  │  POST /otp       │    │  ShopeeBot               │   │
-│  │  PUT  /orders/N  │    │  (8-step checkout loop)  │   │
-│  │  POST /orders/N/ │    │                          │   │
-│  │       rebuy      │    │  ExcelHandler            │   │
+│  │                  │    │  (patchright / CDP)      │   │
+│  │  WebSocket /ws   │    │  + human-like behavior   │   │
+│  │  POST /upload    │    │                          │   │
+│  │  POST /login     │    │  VisionAgent             │   │
+│  │  POST /start     │    │  (Gemma-4-31B-IT)       │   │
+│  │  POST /otp       │    │  + Set-of-Mark markers   │   │
+│  │  PUT  /orders/N  │    │                          │   │
+│  │  POST /orders/N/ │    │  ShopeeBot               │   │
+│  │       rebuy      │    │  (add-to-cart loop)      │   │
 │  └──────────────────┘    └──────────────────────────┘   │
 │                AppState (shared singleton)               │
 │     orders[] · login_status · otp_requested             │
@@ -199,22 +201,24 @@
       <div class="card file-tree">
         <div><span class="dir">bot-mua-hang/</span></div>
         <div>&nbsp;&nbsp;<span class="file">main.py</span> &nbsp;<span class="note">— CLI entry point (click)</span></div>
-        <div>&nbsp;&nbsp;<span class="file">config.yaml</span> &nbsp;<span class="note">— runtime settings</span></div>
+        <div>&nbsp;&nbsp;<span class="file">config.yaml</span> &nbsp;<span class="note">— runtime settings (CDP, viewport, model)</span></div>
         <div>&nbsp;&nbsp;<span class="file">requirements.txt</span></div>
         <div>&nbsp;&nbsp;<span class="file">.env.example</span> &nbsp;<span class="note">— AI_PLATFORM_API_KEY</span></div>
         <div>&nbsp;&nbsp;<span class="file">.gitignore</span></div>
         <div>&nbsp;&nbsp;<span class="file">sample_orders.xlsx</span></div>
+        <div>&nbsp;&nbsp;<span class="file">document.html</span> &nbsp;<span class="note">— this documentation</span></div>
         <div>&nbsp;&nbsp;<span class="dir">src/</span></div>
-        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">agent.py</span> &nbsp;<span class="note">— VisionAgent + Action dataclass</span></div>
-        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">browser.py</span> &nbsp;<span class="note">— BrowserManager (patchright)</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">agent.py</span> &nbsp;<span class="note">— VisionAgent + Set-of-Mark markers + Action dataclass</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">browser.py</span> &nbsp;<span class="note">— BrowserManager (patchright/CDP + human-like behavior)</span></div>
         <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">excel_handler.py</span> &nbsp;<span class="note">— load / update Excel file</span></div>
-        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">shopee_bot.py</span> &nbsp;<span class="note">— ShopeeBot checkout orchestration</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">shopee_bot.py</span> &nbsp;<span class="note">— ShopeeBot add-to-cart orchestration</span></div>
         <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">state.py</span> &nbsp;<span class="note">— AppState + OrderState</span></div>
         <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="dir">dashboard/</span></div>
         <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">server.py</span> &nbsp;<span class="note">— FastAPI app + all endpoints</span></div>
         <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="dir">templates/</span></div>
         <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">index.html</span> &nbsp;<span class="note">— live dashboard UI</span></div>
         <div>&nbsp;&nbsp;<span class="dir">session/</span> &nbsp;<span class="note">— Chromium user data dir (gitignored)</span></div>
+        <div>&nbsp;&nbsp;<span class="dir">debug_logs/</span> &nbsp;<span class="note">— per-order screenshots + trace logs (gitignored)</span></div>
       </div>
     </section>
 
@@ -224,8 +228,9 @@
       <table>
         <thead><tr><th>Dependency</th><th>Purpose</th></tr></thead>
         <tbody>
-          <tr><td><code>patchright</code></td><td>Browser automation — patched Chromium that bypasses Shopee's anti-bot detection</td></tr>
+          <tr><td><code>patchright</code></td><td>Browser automation — patched Chromium that bypasses Shopee's anti-bot detection. Also supports CDP connection to real Chrome.</td></tr>
           <tr><td><code>openai</code></td><td>VNG Cloud AI Platform (OpenAI-compatible API) for Gemma-4-31B-IT vision model</td></tr>
+          <tr><td><code>Pillow</code></td><td>Draw numbered Set-of-Mark badges on screenshots for the LLM</td></tr>
           <tr><td><code>openpyxl</code></td><td>Read/write Excel (.xlsx) order files</td></tr>
           <tr><td><code>fastapi</code> + <code>uvicorn</code></td><td>Dashboard web server</td></tr>
           <tr><td><code>websockets</code></td><td>Real-time order status updates in dashboard</td></tr>
@@ -266,13 +271,14 @@ cp .env.example .env
         <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
           <tr><td><code>model</code></td><td><code>google/gemma-4-31b-it</code></td><td>Vision model served by VNG Cloud</td></tr>
-          <tr><td><code>headless</code></td><td><code>false</code></td><td>Run browser visibly (recommended for Shopee)</td></tr>
-          <tr><td><code>viewport</code></td><td><code>1920×1080</code></td><td>Browser window size — must match LLM coordinates</td></tr>
-          <tr><td><code>max_steps</code></td><td><code>20</code></td><td>Max LLM actions per order before failing</td></tr>
-          <tr><td><code>wait_timeout_ms</code></td><td><code>2500</code></td><td>Wait after each browser action (ms)</td></tr>
+          <tr><td><code>cdp_endpoint</code></td><td><code>null</code></td><td>CDP endpoint to connect to real Chrome (e.g. <code>"http://localhost:9222"</code>). <code>null</code> = launch patchright's own Chromium.</td></tr>
+          <tr><td><code>headless</code></td><td><code>false</code></td><td>Run browser visibly (recommended for Shopee). Only used in non-CDP mode.</td></tr>
+          <tr><td><code>viewport</code></td><td><code>1280×1080</code></td><td>Browser viewport size — screenshots sent to LLM at this resolution</td></tr>
+          <tr><td><code>max_steps</code></td><td><code>40</code></td><td>Max LLM actions per order before failing</td></tr>
+          <tr><td><code>wait_timeout_ms</code></td><td><code>3000</code></td><td>Base wait after each browser action (ms). Random jitter of ±500ms is added.</td></tr>
           <tr><td><code>dashboard_port</code></td><td><code>8081</code></td><td>Dashboard HTTP port</td></tr>
-          <tr><td><code>session_dir</code></td><td><code>./session</code></td><td>Chromium profile dir for login persistence</td></tr>
-          <tr><td><code>browser_channel</code></td><td><code>null</code></td><td><code>null</code> = patchright Chromium; <code>"chrome"</code> = installed Chrome</td></tr>
+          <tr><td><code>session_dir</code></td><td><code>./session</code></td><td>Chromium profile dir for login persistence (non-CDP mode only)</td></tr>
+          <tr><td><code>browser_channel</code></td><td><code>null</code></td><td><code>null</code> = patchright Chromium; <code>"chrome"</code> = installed Chrome (non-CDP mode only)</td></tr>
           <tr><td><code>seller_note</code></td><td><em>gift note string</em></td><td>Text written in the seller note field on every order</td></tr>
           <tr><td><code>invoice.*</code></td><td><em>empty</em></td><td>VAT invoice: <code>company_name</code>, <code>tax_id</code>, <code>address</code>, <code>email</code></td></tr>
         </tbody>
@@ -302,15 +308,42 @@ python main.py --file orders.xlsx --no-headless --port 9090</code></pre>
       </table>
     </section>
 
+    <!-- CDP Mode -->
+    <section id="cdp-mode">
+      <h2>CDP mode (recommended)</h2>
+      <p>For best anti-bot evasion, connect to your real Chrome browser instead of launching a new one. Your real Chrome has natural fingerprint, browsing history, and Shopee trust score — making CAPTCHA far less likely.</p>
+
+      <ol class="steps">
+        <li><div class="step-body"><strong>Start Chrome with debugging</strong><span>
+          macOS: <code>/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222</code><br/>
+          Linux: <code>google-chrome --remote-debugging-port=9222</code><br/>
+          Windows: <code>"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222</code>
+        </span></div></li>
+        <li><div class="step-body"><strong>Log in to Shopee</strong><span>In that Chrome window, go to <code>shopee.vn</code> and log in normally with your account.</span></div></li>
+        <li><div class="step-body"><strong>Set CDP endpoint</strong><span>In <code>config.yaml</code>, set <code>cdp_endpoint: "http://localhost:9222"</code></span></div></li>
+        <li><div class="step-body"><strong>Run the bot</strong><span><code>python main.py --file orders.xlsx</code> — the bot attaches to your existing Chrome. No new browser window opens.</span></div></li>
+      </ol>
+
+      <div class="callout warn">
+        <strong>Important</strong> — in CDP mode, the bot uses the first tab of your existing Chrome. The <code>session_dir</code> and <code>headless</code> settings are ignored. When the bot finishes, it disconnects without closing your Chrome.
+      </div>
+    </section>
+
     <!-- Login -->
     <section id="login">
       <h2>Shopee login &amp; session persistence</h2>
-      <p>The bot uses a <strong>persistent browser profile</strong> stored in <code>./session/</code>. Once you log in, the session is saved and reused on every subsequent run — no need to log in again.</p>
+      <p>The bot supports two login modes depending on your configuration:</p>
+
+      <h3>CDP mode (recommended)</h3>
+      <p>Log in to Shopee directly in your Chrome browser before starting the bot. The bot inherits your existing session — no login flow needed.</p>
+
+      <h3>Launch mode (non-CDP)</h3>
+      <p>The bot uses a <strong>persistent browser profile</strong> stored in <code>./session/</code>. Once you log in, the session is saved and reused on every subsequent run.</p>
 
       <ol class="steps">
         <li><div class="step-body"><strong>Start the bot</strong><span><code>python main.py</code> — browser launches immediately.</span></div></li>
         <li><div class="step-body"><strong>Check dashboard header</strong><span>The login badge shows <span style="color:#f87171">✗ Not logged in</span>.</span></div></li>
-        <li><div class="step-body"><strong>Click "🔑 Login to Shopee"</strong><span>The browser navigates to <code>shopee.vn/buyer/login</code>.</span></div></li>
+        <li><div class="step-body"><strong>Click "Login to Shopee"</strong><span>The browser navigates to <code>shopee.vn/buyer/login</code>.</span></div></li>
         <li><div class="step-body"><strong>Log in normally</strong><span>Enter your phone/email and password. Complete any Shopee captcha manually.</span></div></li>
         <li><div class="step-body"><strong>Dashboard updates</strong><span>Within 3 seconds the badge turns <span style="color:#86efac">✓ Logged in</span>. Session is now saved to <code>./session/</code>.</span></div></li>
       </ol>
@@ -318,9 +351,6 @@ python main.py --file orders.xlsx --no-headless --port 9090</code></pre>
       <div class="callout warn">
         <strong>Reset session</strong> — to log in as a different account, delete the <code>session/</code> directory and re-run.
       </div>
-
-      <h3>Why patchright?</h3>
-      <p>Shopee detects standard Playwright/Selenium via the Chrome DevTools Protocol (CDP) fingerprint at the binary level — even with <code>navigator.webdriver = undefined</code> and stealth JS patches. <strong>Patchright</strong> patches the Chromium binary itself, removing all CDP detection markers that Shopee's anti-bot system looks for.</p>
     </section>
 
     <!-- Excel format -->
@@ -333,13 +363,13 @@ python main.py --file orders.xlsx --no-headless --port 9090</code></pre>
           <tr><td><code>product_url</code></td><td>string</td><td>Full Shopee product URL (required)</td></tr>
           <tr><td><code>product_name</code></td><td>string</td><td>Display name for the dashboard</td></tr>
           <tr><td><code>product_id</code></td><td>string</td><td>Shopee product ID</td></tr>
+          <tr><td><code>variant, size,color</code></td><td>string</td><td>Variant specification, e.g. "Màu đen, size M". If empty, bot selects first available.</td></tr>
           <tr><td><code>receiver_name</code></td><td>string</td><td>Recipient full name</td></tr>
           <tr><td><code>phone_number</code></td><td>string</td><td>Recipient phone number</td></tr>
           <tr><td><code>address</code></td><td>string</td><td>Full shipping address</td></tr>
-          <tr><td><code>quantity</code></td><td>integer</td><td>Number of units to order</td></tr>
-          <tr><td><code>voucher_code</code></td><td>string</td><td>Optional voucher/discount code. If empty, bot applies best available.</td></tr>
+          <tr><td><code>quantity</code></td><td>integer</td><td>Number of units to add to cart</td></tr>
           <tr><td><code>status</code></td><td><em>output</em></td><td>Written by bot: <code>pending</code> / <code>running</code> / <code>success</code> / <code>failed</code></td></tr>
-          <tr><td><code>order_id</code></td><td><em>output</em></td><td>Shopee order ID after successful checkout</td></tr>
+          <tr><td><code>order_id</code></td><td><em>output</em></td><td>Extracted after successful add-to-cart (if available)</td></tr>
           <tr><td><code>note</code></td><td><em>output</em></td><td>Error message if order failed</td></tr>
         </tbody>
       </table>
@@ -348,38 +378,50 @@ python main.py --file orders.xlsx --no-headless --port 9090</code></pre>
       </div>
     </section>
 
-    <!-- Checkout flow -->
-    <section id="checkout-flow">
-      <h2>Checkout flow (8 steps)</h2>
-      <p>After navigating to the product URL, the Vision LLM analyzes each screenshot and executes one action at a time, following this order:</p>
+    <!-- Add to Cart flow -->
+    <section id="add-to-cart-flow">
+      <h2>Add to Cart flow</h2>
+      <p>After navigating to the product URL, the bot uses a hybrid JavaScript + Vision LLM pipeline to add the product to cart. A typical successful flow completes in 3–4 steps (~35 seconds):</p>
       <ol class="steps">
-        <li><div class="step-body"><strong>Select product &amp; quantity</strong><span>Choose the correct variant (size/color if applicable), set quantity, click <em>Mua Ngay</em> (Buy Now).</span></div></li>
-        <li><div class="step-body"><strong>Receiver information</strong><span>Verify or change the shipping address to match the order's <code>receiver_name</code>, <code>phone_number</code>, and <code>address</code>.</span></div></li>
-        <li><div class="step-body"><strong>Seller note (Lời nhắn)</strong><span>Type the configured <code>seller_note</code> (e.g. <em>"Quà tặng từ …"</em>) into the seller note field.</span></div></li>
-        <li><div class="step-body"><strong>VAT invoice</strong><span>If <code>invoice.company_name</code> is set in config.yaml, enable the invoice checkbox and fill in company name, tax ID, address, and email.</span></div></li>
-        <li><div class="step-body"><strong>Cheapest shipping</strong><span>Compare all available shipping carriers and select the one with the lowest price.</span></div></li>
-        <li><div class="step-body"><strong>Apply vouchers</strong><span>Click <em>Chọn Shopee Voucher</em> and apply the best available discount. If a <code>voucher_code</code> is in the Excel row, use that instead.</span></div></li>
-        <li><div class="step-body"><strong>Credit card payment</strong><span>Select <em>Thẻ Tín Dụng/Ghi Nợ</em> — the saved card on the account is used.</span></div></li>
-        <li><div class="step-body"><strong>Place order + confirm</strong><span>Click <em>Đặt Hàng</em>. If OTP is required, pause for user input. On success screen, extract the order ID.</span></div></li>
+        <li><div class="step-body"><strong>Select color/variant</strong><span>JavaScript extracts all interactive elements with pixel coordinates. The LLM identifies the correct color button by its text label (e.g. "Đen") and clicks it. JavaScript detects the orange border indicating selection.</span></div></li>
+        <li><div class="step-body"><strong>Select size</strong><span>The LLM sees the color is now marked <code>[SELECTED]</code> and picks the correct size button (e.g. "M"). JavaScript confirms selection via border color detection.</span></div></li>
+        <li><div class="step-body"><strong>Add to Cart</strong><span>With all variants marked <code>[SELECTED]</code>, the LLM clicks the "Thêm Vào Giỏ Hàng" (Add To Cart) button. The bot does NOT click "Mua Ngay" (Buy Now).</span></div></li>
+        <li><div class="step-body"><strong>Confirm success</strong><span>The LLM sees the success toast/modal ("Sản phẩm đã được thêm vào Giỏ Hàng") and returns <code>action="done"</code>.</span></div></li>
       </ol>
+
+      <div class="callout tip">
+        <strong>Add to Cart only</strong> — the bot stops after adding to cart. It does NOT proceed to checkout, payment, or order placement. This is by design for the current workflow.
+      </div>
+
+      <h3>Automatic failure cases</h3>
+      <p>The LLM immediately returns <code>action="fail"</code> for:</p>
+      <ul style="color:var(--muted);padding-left:1.5rem;margin-bottom:1rem;">
+        <li>CAPTCHA / anti-bot screen detected</li>
+        <li>Login page (session expired)</li>
+        <li>Product out of stock or unavailable</li>
+        <li>Access denied</li>
+      </ul>
+
+      <h3>Stuck detection</h3>
+      <p>If the bot repeats the same action 3 times in a row (same action type + same element), it triggers a recovery: press Escape twice, scroll to top, then re-analyze the page.</p>
     </section>
 
     <!-- OTP -->
     <section id="otp">
       <h2>OTP handling</h2>
-      <p>When Shopee requires a one-time password to authorize the credit card payment, the LLM returns <code>action="wait_otp"</code>. The bot then:</p>
+      <p>When Shopee requires a one-time password (e.g. during login or payment), the LLM returns <code>action="wait_otp"</code>. The bot then:</p>
       <ol class="steps">
-        <li><div class="step-body"><strong>Pauses the checkout loop</strong><span>The order status changes to <code>waiting_otp</code>.</span></div></li>
+        <li><div class="step-body"><strong>Pauses the loop</strong><span>The order status changes to <code>waiting_otp</code>.</span></div></li>
         <li><div class="step-body"><strong>OTP modal appears</strong><span>A full-screen modal pops up in the dashboard with an OTP input field (auto-focused).</span></div></li>
         <li><div class="step-body"><strong>User enters OTP</strong><span>Type the code received by SMS/email, press Enter or click Submit. 5-minute timeout.</span></div></li>
-        <li><div class="step-body"><strong>Bot continues</strong><span>The OTP is typed into the browser and the checkout resumes automatically.</span></div></li>
+        <li><div class="step-body"><strong>Bot continues</strong><span>The OTP is typed into the browser and processing resumes automatically.</span></div></li>
       </ol>
     </section>
 
     <!-- Re-buy -->
     <section id="rebuy">
       <h2>Re-buy</h2>
-      <p>The <strong>🔄 Re-buy</strong> button on each order row lets you re-process any order that already has a <code>success</code> or <code>failed</code> status. It:</p>
+      <p>The <strong>Re-buy</strong> button on each order row lets you re-process any order that already has a <code>success</code> or <code>failed</code> status. It:</p>
       <ul style="color:var(--muted);padding-left:1.5rem;margin-bottom:1rem;">
         <li>Resets the order status to <code>pending</code> in the Excel file</li>
         <li>Reloads the order from Excel (so any edits you made are picked up)</li>
@@ -398,15 +440,17 @@ python main.py --file orders.xlsx --no-headless --port 9090</code></pre>
         <thead><tr><th>Element</th><th>Description</th></tr></thead>
         <tbody>
           <tr><td>Login badge</td><td>Shows <em>✓ Logged in</em> / <em>✗ Not logged in</em> based on Shopee session cookie. Updated every 3 seconds.</td></tr>
-          <tr><td>🔑 Login to Shopee</td><td>Opens Shopee login page in the bot's browser. Disappears once logged in.</td></tr>
-          <tr><td>▶ Start</td><td>Begins processing all pending orders. Disabled until orders are loaded. Becomes "⏳ Running…" after click.</td></tr>
+          <tr><td>Login to Shopee</td><td>Opens Shopee login page in the bot's browser. Disappears once logged in.</td></tr>
+          <tr><td>Start</td><td>Begins processing all pending orders. Disabled until orders are loaded. Becomes "Running…" after click.</td></tr>
           <tr><td>Upload zone</td><td>Drag-and-drop or click to upload an <code>.xlsx</code> order file. Disappears once orders are loaded.</td></tr>
-          <tr><td>↑ Re-import</td><td>Replace the current Excel file with a new one. Resets started state.</td></tr>
-          <tr><td>Orders table</td><td>Live table of all orders with status badges, order IDs, and action buttons.</td></tr>
-          <tr><td>✏️ Edit</td><td>Opens a modal to edit any order field (URL, receiver, quantity, etc.). Saves to Excel immediately.</td></tr>
-          <tr><td>🔄 Re-buy</td><td>Re-queues a completed/failed order for processing.</td></tr>
-          <tr><td>Live Preview</td><td>Right panel shows the current screenshot from the browser + LLM reasoning text.</td></tr>
-          <tr><td>OTP Modal</td><td>Auto-appears when card OTP is required. Enter the code and press Enter.</td></tr>
+          <tr><td>Re-import</td><td>Replace the current Excel file with a new one. Resets started state.</td></tr>
+          <tr><td>Orders table</td><td>Live table of all orders with status badges, order IDs, and action buttons. <strong>Collapsible</strong> — click "Hide" to collapse and give full width to the preview panel.</td></tr>
+          <tr><td>Hide / Orders toggle</td><td>Collapses/expands the Orders panel. When collapsed, the Live Preview and Console Logs expand to fill the full viewport width.</td></tr>
+          <tr><td>Edit</td><td>Opens a modal to edit any order field (URL, receiver, quantity, etc.). Saves to Excel immediately.</td></tr>
+          <tr><td>Re-buy</td><td>Re-queues a completed/failed order for processing.</td></tr>
+          <tr><td>Live Preview</td><td>Right panel shows the current screenshot from the browser + LLM reasoning text + step counter.</td></tr>
+          <tr><td>Console Logs</td><td>Scrollable log panel showing real-time bot activity. Color-coded: yellow for warnings, red for errors.</td></tr>
+          <tr><td>OTP Modal</td><td>Auto-appears when OTP is required. Enter the code and press Enter.</td></tr>
         </tbody>
       </table>
     </section>
@@ -416,7 +460,7 @@ python main.py --file orders.xlsx --no-headless --port 9090</code></pre>
       <h2>API endpoints</h2>
 
       <div class="endpoint"><span class="method GET">GET</span><code>/</code><p>Serves the dashboard HTML</p></div>
-      <div class="endpoint"><span class="method WS">WS</span><code>/ws</code><p>WebSocket — pushes AppState JSON on every state change</p></div>
+      <div class="endpoint"><span class="method WS">WS</span><code>/ws</code><p>WebSocket — pushes AppState JSON on every state change (orders, screenshots, logs)</p></div>
       <div class="endpoint"><span class="method POST">POST</span><code>/upload</code><p>Upload <code>.xlsx</code> file (multipart). Loads orders into state, resets started flag.</p></div>
       <div class="endpoint"><span class="method POST">POST</span><code>/login</code><p>Signals bot to navigate browser to <code>shopee.vn/buyer/login</code></p></div>
       <div class="endpoint"><span class="method POST">POST</span><code>/start</code><p>Fires the start event — bot begins processing pending orders</p></div>
@@ -432,30 +476,95 @@ python main.py --file orders.xlsx --no-headless --port 9090</code></pre>
       <h2>Module reference</h2>
 
       <h3>src/agent.py — VisionAgent</h3>
-      <p>Wraps the VNG Cloud OpenAI-compatible API. Encodes each screenshot as a base64 <code>image_url</code> and sends it with the checkout objective to Gemma-4-31B-IT. Parses the structured JSON response into an <code>Action</code> dataclass.</p>
+      <p>Wraps the VNG Cloud OpenAI-compatible API. Uses a <strong>Set-of-Mark (SoM)</strong> approach: draws numbered red badges on each detected element in the screenshot, then sends the annotated image + element list to Gemma-4-31B-IT. The LLM picks elements by number (<code>element_index</code>) rather than guessing pixel coordinates.</p>
       <table>
         <thead><tr><th>Action type</th><th>Meaning</th></tr></thead>
         <tbody>
-          <tr><td><code>click</code></td><td>Click at <code>(target_x, target_y)</code></td></tr>
-          <tr><td><code>type</code></td><td>Click then type <code>text_to_type</code>, press Enter</td></tr>
-          <tr><td><code>scroll</code></td><td>Scroll up or down by 540px</td></tr>
+          <tr><td><code>click</code></td><td>Click the element at <code>element_index</code> (coordinates from JavaScript)</td></tr>
+          <tr><td><code>type</code></td><td>Click element, then type <code>text_to_type</code>, press Enter</td></tr>
+          <tr><td><code>scroll</code></td><td>Scroll up or down by 540px (in small natural increments)</td></tr>
+          <tr><td><code>press_escape</code></td><td>Press Escape key to close modals/popups/overlays</td></tr>
           <tr><td><code>wait_otp</code></td><td>Pause and request OTP from user</td></tr>
-          <tr><td><code>done</code></td><td>Order successfully placed — extract order ID</td></tr>
+          <tr><td><code>done</code></td><td>Item successfully added to cart</td></tr>
           <tr><td><code>fail</code></td><td>Unrecoverable error — mark order as failed</td></tr>
         </tbody>
       </table>
+      <p>Key functions:</p>
+      <ul style="color:var(--muted);padding-left:1.5rem;margin-bottom:1rem;">
+        <li><code>_draw_markers(screenshot, elements)</code> — draws numbered badges on screenshot; orange for selected elements, red for normal</li>
+        <li><code>VisionAgent.decide(screenshot, objective, elements)</code> — sends annotated screenshot + element list to LLM, returns <code>Action</code></li>
+        <li><code>Action.from_dict(data, elements)</code> — maps <code>element_index</code> to pixel coordinates from the elements list</li>
+      </ul>
 
       <h3>src/browser.py — BrowserManager</h3>
-      <p>Manages a <strong>patchright</strong> persistent browser context. The <code>session_dir</code> stores cookies and localStorage across runs. Key methods: <code>start()</code>, <code>goto(url)</code>, <code>screenshot()</code>, <code>execute(action)</code>, <code>is_logged_in()</code>, <code>close()</code>.</p>
+      <p>Manages browser automation with two connection modes and human-like interaction primitives.</p>
+
+      <h3 style="font-size:0.9rem;color:var(--muted)">Connection modes</h3>
+      <ul style="color:var(--muted);padding-left:1.5rem;margin-bottom:1rem;">
+        <li><strong>CDP mode</strong> (<code>cdp_endpoint</code> set) — connects to existing Chrome via <code>connect_over_cdp()</code>. Uses the first context and page. Sets viewport to configured size.</li>
+        <li><strong>Launch mode</strong> (<code>cdp_endpoint</code> null) — launches patchright's own Chromium with persistent user data dir.</li>
+      </ul>
+
+      <h3 style="font-size:0.9rem;color:var(--muted)">Human-like behavior</h3>
+      <ul style="color:var(--muted);padding-left:1.5rem;margin-bottom:1rem;">
+        <li><code>_human_move(x, y)</code> — cubic Bézier curve from current position to target with 20–40 steps, random control points, and ±1px jitter per step</li>
+        <li><code>_human_click(x, y)</code> — Bézier move, then <code>mouse.down()</code> / <code>mouse.up()</code> (not <code>click()</code>) for proper event sequence</li>
+        <li><code>_human_type(text)</code> — character-by-character with 50–150ms delays, occasional 200–400ms thinking pauses</li>
+        <li><code>_human_scroll(delta)</code> — small incremental <code>mouse.wheel()</code> calls with random step sizes (40–120px) and pauses</li>
+      </ul>
+
+      <h3 style="font-size:0.9rem;color:var(--muted)">Element extraction</h3>
+      <p><code>extract_elements()</code> runs JavaScript in the page to find interactive elements. Returns a list of <code>{t, x, y, w, h, s}</code> dicts:</p>
+      <ul style="color:var(--muted);padding-left:1.5rem;margin-bottom:1rem;">
+        <li><code>t</code> — element text (max 60 chars)</li>
+        <li><code>x, y</code> — center coordinates (pixels)</li>
+        <li><code>w, h</code> — bounding box dimensions</li>
+        <li><code>s</code> — selected state (boolean, detected via orange/red border color)</li>
+      </ul>
+      <p>Two-pass scan: first <code>button, [role="button"], input, textarea</code>; if &lt;30 found, also scans <code>div, span, a, label</code> with <code>cursor: pointer</code>.</p>
 
       <h3>src/shopee_bot.py — ShopeeBot</h3>
-      <p>Orchestrates one order at a time: navigate → screenshot loop → execute actions → handle OTP → write result. Builds a detailed checkout objective string from the order data + config (seller note, invoice, voucher, shipping instructions).</p>
+      <p>Orchestrates one order at a time: navigate → screenshot + element extraction → LLM decision → execute action → loop. Includes stuck detection (3 identical actions → Escape + scroll to top), CAPTCHA URL detection, and comprehensive debug logging with per-step screenshots.</p>
 
       <h3>src/excel_handler.py</h3>
       <p>Three functions: <code>load_orders(path)</code> returns all rows as dicts with <code>_row_index</code>. <code>update_order_status(path, row, status, order_id, note)</code> writes the result columns. <code>update_order_fields(path, row, fields)</code> writes arbitrary column updates (used by the Edit endpoint).</p>
 
       <h3>src/state.py — AppState</h3>
       <p>Global singleton shared between the bot loop and the FastAPI server. Contains the orders list, all event primitives, and <code>broadcast()</code> which pushes the serialized state to all connected WebSocket clients.</p>
+    </section>
+
+    <!-- Vision Pipeline -->
+    <section id="vision-pipeline">
+      <h2>Vision pipeline</h2>
+      <p>The bot uses a hybrid JavaScript + LLM approach that separates <em>what to do</em> (LLM) from <em>where things are</em> (JavaScript):</p>
+
+      <div class="card">
+        <pre><code>Screenshot (raw PNG)
+    │
+    ├── JavaScript: extract_elements()
+    │     ├── Finds buttons, inputs, clickable elements
+    │     ├── Gets bounding box centers (exact pixels)
+    │     └── Detects selection state via border color
+    │            isWarm(rgb) → R>200, G<150, B<100
+    │
+    ├── Python: _draw_markers()
+    │     ├── Draws numbered badges on screenshot
+    │     ├── Red badge = normal element
+    │     ├── Orange badge = [SELECTED] element
+    │     └── Green/orange outline around element bounds
+    │
+    └── LLM: Gemma-4-31B-IT
+          ├── Sees annotated screenshot + element text list
+          ├── Picks element_index by NUMBER (not coordinates)
+          ├── Trusts [SELECTED] markers (no visual detection needed)
+          └── Returns JSON: {action, element_index, reasoning}</code></pre>
+      </div>
+
+      <h3>Why this approach?</h3>
+      <p>Earlier iterations tried having the LLM estimate pixel coordinates or grid cells directly from screenshots. Gemma-4-31B-IT's spatial reasoning was consistently off by 200+ pixels — it would click the wrong variant button or miss the Add to Cart button entirely. By using JavaScript for precise element location and letting the LLM only decide <em>which</em> element (by number), accuracy went from ~30% to nearly 100%.</p>
+
+      <h3>Selection state detection</h3>
+      <p>Shopee indicates selected variants (color, size) with an orange/red border. The LLM could not reliably detect this visual cue in screenshots. Instead, JavaScript checks the computed <code>borderColor</code> and <code>outlineColor</code> CSS properties using <code>isWarm()</code>: if R&gt;200, G&lt;150, B&lt;100, the element is marked <code>[SELECTED]</code> in the element list. The LLM trusts this marking and never re-clicks a selected element.</p>
     </section>
 
     <!-- Anti-bot -->
@@ -468,9 +577,14 @@ python main.py --file orders.xlsx --no-headless --port 9090</code></pre>
         <thead><tr><th>Detection vector</th><th>How we handle it</th></tr></thead>
         <tbody>
           <tr><td>CDP binary fingerprint</td><td>Patchright patches the Chromium binary before compilation — markers are removed at source level</td></tr>
+          <tr><td>Browser fingerprint / trust score</td><td><strong>CDP mode</strong>: connect to user's real Chrome with natural browsing history, extensions, and cookies — much higher trust score than a fresh Chromium</td></tr>
           <tr><td><code>navigator.webdriver</code></td><td>Removed by patchright (binary level)</td></tr>
-          <tr><td><code>--enable-automation</code> flag</td><td>Removed via <code>ignore_default_args</code></td></tr>
-          <tr><td>Sequential orders (rate limiting)</td><td>Orders processed one at a time with 2.5s delays between actions</td></tr>
+          <tr><td>Robotic mouse movement</td><td>Cubic Bézier curves with random control points, 20–40 intermediate steps, ±1px jitter</td></tr>
+          <tr><td>Instant clicks</td><td><code>mouse.down()</code> / <code>mouse.up()</code> with 50–120ms hold delay, preceded by natural mouse movement to the target</td></tr>
+          <tr><td>Robotic typing</td><td>Character-by-character with 50–150ms delays, occasional 200–400ms "thinking" pauses</td></tr>
+          <tr><td>Instant scrolling</td><td>Small incremental <code>mouse.wheel()</code> calls (40–120px steps) with 15–50ms pauses</td></tr>
+          <tr><td>Predictable timing</td><td>Random jitter (±500ms) added to all wait times between actions</td></tr>
+          <tr><td>Sequential orders (rate limiting)</td><td>Orders processed one at a time with 2.5–3.5s base delays between actions</td></tr>
           <tr><td>Locale / language</td><td>Browser launched with <code>locale="vi-VN"</code></td></tr>
         </tbody>
       </table>
@@ -479,13 +593,34 @@ python main.py --file orders.xlsx --no-headless --port 9090</code></pre>
     <!-- Session -->
     <section id="session">
       <h2>Session persistence</h2>
+      <h3>Launch mode (non-CDP)</h3>
       <p>Patchright's <code>launch_persistent_context(user_data_dir="./session")</code> saves the full Chromium profile — cookies, localStorage, IndexedDB — to the <code>session/</code> directory. This means:</p>
-      <ul style="color:var(--muted);padding-left:1.5rem;">
+      <ul style="color:var(--muted);padding-left:1.5rem;margin-bottom:1rem;">
         <li>Shopee login persists across bot restarts</li>
         <li>Saved credit cards and addresses are available</li>
         <li>To switch accounts: <code>rm -rf session/</code> and re-login</li>
         <li>The <code>session/</code> directory is gitignored</li>
       </ul>
+
+      <h3>CDP mode</h3>
+      <p>Session is managed by your real Chrome browser. The bot simply connects and disconnects — it does not modify your Chrome profile or close Chrome when it exits.</p>
+    </section>
+
+    <!-- Debugging -->
+    <section id="debugging">
+      <h2>Debugging</h2>
+      <p>Every order produces a debug log directory at <code>debug_logs/order{N}_{timestamp}/</code> containing:</p>
+      <table>
+        <thead><tr><th>File</th><th>Contents</th></tr></thead>
+        <tbody>
+          <tr><td><code>trace.log</code></td><td>Full execution trace: URL, element count, raw LLM response, observation, action, reasoning for each step</td></tr>
+          <tr><td><code>step{N}.png</code></td><td>Raw browser screenshot at each step</td></tr>
+          <tr><td><code>step{N}_annotated.png</code></td><td>Screenshot with numbered badges drawn on detected elements. Orange badges/outlines = selected, red badges + green outlines = normal.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout tip">
+        <strong>Debugging tips</strong> — compare <code>step{N}.png</code> (raw) with <code>step{N}_annotated.png</code> (with markers) to verify element detection is correct. Check <code>trace.log</code> for the LLM's observation and reasoning at each step. If the LLM picks the wrong element, look at the element list in the trace to see what text labels were detected.
+      </div>
     </section>
 
   </content>

@@ -1,11 +1,47 @@
 import asyncio
 import logging
 import queue
+import re
 import threading
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
 _MAX_LOGS = 500  # max log entries kept in memory
+
+_PERMANENT_PATTERNS = (
+    "captcha",
+    "out of stock",
+    "unavailable",
+    "access denied",
+    "login page",
+    "het hang",
+    "không còn hàng",
+)
+
+
+def classify_failure(note: str) -> str:
+    """Classify a failure note as 'permanent' or 'retryable'."""
+    if not note:
+        return ""
+    note_lower = note.lower()
+    for pattern in _PERMANENT_PATTERNS:
+        if pattern in note_lower:
+            return "permanent"
+    return "retryable"
+
+
+def _normalize_failure_note(note: str) -> str:
+    """Strip variable suffixes for grouping. E.g. 'Navigation error: timeout' -> 'Navigation error'."""
+    if not note:
+        return ""
+    # Strip everything after the first colon for known prefixed errors
+    for prefix in ("Navigation error", "LLM error", "Execute error"):
+        if note.startswith(prefix):
+            return prefix
+    # Strip trailing details in parentheses
+    cleaned = re.sub(r"\s*\(.*?\)\s*$", "", note)
+    return cleaned
 
 
 @dataclass
@@ -24,6 +60,9 @@ class OrderState:
     current_step: int = 0
     last_screenshot_b64: str = ""
     last_reasoning: str = ""
+    retry_count: int = 0
+    failure_category: str = ""  # "retryable" | "permanent" | ""
+    db_order_id: int | None = None
 
 
 class AppState:
@@ -40,6 +79,13 @@ class AppState:
         self.otp_value: str = ""
         self.otp_event: threading.Event = threading.Event()
         self.logs: list[str] = []  # rolling log buffer for dashboard
+        self.active_order_index: int | None = None
+        self.batch_size: int = 50
+        self.max_retries: int = 2
+        self.current_batch: int = 0
+        self.total_batches: int = 0
+        self.completed: bool = False
+        self.session_id: int | None = None
 
     def add_subscriber(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
@@ -64,30 +110,76 @@ class AppState:
             await q.put(payload)
 
     def _serialize(self) -> dict[str, Any]:
+        # Summary stats
+        status_counts = Counter(o.status for o in self.orders)
+        summary = {
+            "total": len(self.orders),
+            "success": status_counts.get("success", 0),
+            "failed": status_counts.get("failed", 0),
+            "running": status_counts.get("running", 0),
+            "pending": status_counts.get("pending", 0),
+        }
+
+        # Failure groups
+        failure_map: dict[str, dict] = {}
+        for o in self.orders:
+            if o.status == "failed" and o.note:
+                key = _normalize_failure_note(o.note)
+                if key not in failure_map:
+                    failure_map[key] = {
+                        "reason": key,
+                        "category": o.failure_category,
+                        "count": 0,
+                        "row_indices": [],
+                    }
+                failure_map[key]["count"] += 1
+                failure_map[key]["row_indices"].append(o.row_index)
+        failure_groups = sorted(failure_map.values(), key=lambda g: g["count"], reverse=True)
+
+        orders_data = []
+        for i, o in enumerate(self.orders):
+            order_dict: dict[str, Any] = {
+                "row_index": o.row_index,
+                "db_order_id": o.db_order_id,
+                "product_name": o.product_name,
+                "product_url": o.product_url,
+                "product_id": o.product_id,
+                "receiver_name": o.receiver_name,
+                "phone_number": o.phone_number,
+                "address": o.address,
+                "quantity": o.quantity,
+                "status": o.status,
+                "order_id": o.order_id,
+                "note": o.note,
+                "current_step": o.current_step,
+                "retry_count": o.retry_count,
+                "failure_category": o.failure_category,
+            }
+            # Only send screenshot/reasoning for the active order
+            if self.active_order_index is not None and i == self.active_order_index:
+                order_dict["last_screenshot_b64"] = o.last_screenshot_b64
+                order_dict["last_reasoning"] = o.last_reasoning
+            else:
+                order_dict["last_screenshot_b64"] = ""
+                order_dict["last_reasoning"] = ""
+            orders_data.append(order_dict)
+
         return {
             "started": self.started,
+            "session_id": self.session_id,
             "login_status": self.login_status,
             "otp_requested": self.otp_requested,
             "logs": list(self.logs),
-            "orders": [
-                {
-                    "row_index": o.row_index,
-                    "product_name": o.product_name,
-                    "product_url": o.product_url,
-                    "product_id": o.product_id,
-                    "receiver_name": o.receiver_name,
-                    "phone_number": o.phone_number,
-                    "address": o.address,
-                    "quantity": o.quantity,
-                    "status": o.status,
-                    "order_id": o.order_id,
-                    "note": o.note,
-                    "current_step": o.current_step,
-                    "last_screenshot_b64": o.last_screenshot_b64,
-                    "last_reasoning": o.last_reasoning,
-                }
-                for o in self.orders
-            ],
+            "orders": orders_data,
+            "summary": summary,
+            "failure_groups": failure_groups,
+            "batch_info": {
+                "current": self.current_batch,
+                "total": self.total_batches,
+                "batch_size": self.batch_size,
+            },
+            "completed": self.completed,
+            "max_retries": self.max_retries,
         }
 
 
