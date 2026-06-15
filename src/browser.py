@@ -99,21 +99,15 @@ def _bezier_point(t: float, p0: float, p1: float, p2: float, p3: float) -> float
 class BrowserManager:
     def __init__(
         self,
-        headless: bool = False,
+        cdp_endpoint: str,
         width: int = 1920,
         height: int = 1080,
-        session_dir: str = "./session",
-        channel: str | None = None,
-        cdp_endpoint: str | None = None,
     ):
-        self.headless = headless
+        self.cdp_endpoint = cdp_endpoint
         self.width = width
         self.height = height
-        self.session_dir = str(Path(session_dir).resolve())
-        self.channel = channel
-        self.cdp_endpoint = cdp_endpoint
         self._playwright = None
-        self._browser = None  # only set in CDP mode
+        self._browser = None
         self._context: BrowserContext | None = None
         self.page: Page | None = None
         # Track current mouse position for Bézier movements
@@ -122,49 +116,20 @@ class BrowserManager:
 
     async def start(self) -> None:
         self._playwright = await async_playwright().start()
-
-        if self.cdp_endpoint:
-            # --- CDP mode: connect to an existing Chrome instance ---
-            self._browser = await self._playwright.chromium.connect_over_cdp(
-                self.cdp_endpoint
-            )
-            contexts = self._browser.contexts
-            self._context = contexts[0] if contexts else await self._browser.new_context()
-            self.page = (
-                self._context.pages[0]
-                if self._context.pages
-                else await self._context.new_page()
-            )
-            # Force viewport to match configured size so screenshots
-            # have consistent dimensions for the LLM.
-            await self.page.set_viewport_size(
-                {"width": self.width, "height": self.height}
-            )
-            logger.info(
-                "CDP connected — viewport set to %dx%d", self.width, self.height
-            )
-        else:
-            # --- Launch mode: patchright's own Chromium ---
-            Path(self.session_dir).mkdir(parents=True, exist_ok=True)
-            launch_kwargs = dict(
-                user_data_dir=self.session_dir,
-                headless=self.headless,
-                viewport={"width": self.width, "height": self.height},
-                locale="vi-VN",
-            )
-            if self.channel:
-                launch_kwargs["channel"] = self.channel
-
-            self._context = (
-                await self._playwright.chromium.launch_persistent_context(
-                    **launch_kwargs
-                )
-            )
-            self.page = (
-                self._context.pages[0]
-                if self._context.pages
-                else await self._context.new_page()
-            )
+        self._browser = await self._playwright.chromium.connect_over_cdp(
+            self.cdp_endpoint
+        )
+        contexts = self._browser.contexts
+        self._context = contexts[0] if contexts else await self._browser.new_context()
+        self.page = (
+            self._context.pages[0]
+            if self._context.pages
+            else await self._context.new_page()
+        )
+        # Force viewport to match configured size so screenshots
+        # have consistent dimensions for the LLM.
+        await self.page.set_viewport_size({"width": self.width, "height": self.height})
+        logger.info("CDP connected — viewport set to %dx%d", self.width, self.height)
 
     # ------------------------------------------------------------------
     # Human-like primitives
@@ -279,11 +244,21 @@ class BrowserManager:
         jitter = random.randint(-500, 500)
         await self.page.wait_for_timeout(max(500, wait_ms + jitter))
 
+    async def _reset(self) -> None:
+        """Stop playwright after a failed connect attempt so we can retry cleanly."""
+        try:
+            if self._playwright:
+                await self._playwright.stop()
+        except Exception:
+            pass
+        self._playwright = None
+        self._browser = None
+        self._context = None
+        self.page = None
+
     async def close(self) -> None:
+        # Disconnect from CDP without closing the user's Chrome window
         if self._browser:
-            # CDP mode — disconnect (don't close the user's Chrome)
             await self._browser.close()
-        elif self._context:
-            await self._context.close()
         if self._playwright:
             await self._playwright.stop()

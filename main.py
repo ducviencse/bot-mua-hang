@@ -8,6 +8,8 @@ Usage:
 """
 import asyncio
 import logging
+import os
+import time
 import threading
 from pathlib import Path
 
@@ -45,6 +47,29 @@ def _load_config(path: str = "config.yaml") -> dict:
     return {}
 
 
+def _config_watcher(config_path: str) -> None:
+    """Background thread: polls config.yaml every 5s and hot-reloads allowed fields."""
+    from src.state import app_state as _state
+    p = Path(config_path)
+    last_mtime: float | None = p.stat().st_mtime if p.exists() else None
+    while True:
+        time.sleep(5)
+        try:
+            if not p.exists():
+                continue
+            mtime = p.stat().st_mtime
+            if last_mtime is None or mtime != last_mtime:
+                last_mtime = mtime
+                cfg = _load_config(config_path)
+                _state.batch_size = cfg.get("batch_size", 50)
+                _state.max_retries = cfg.get("max_retries", 2)
+                _state.seller_note = cfg.get("seller_note", "")
+                _state.invoice = cfg.get("invoice", {})
+                logger.info("config.yaml reloaded")
+        except Exception:
+            pass
+
+
 def _start_dashboard(port: int) -> None:
     from src.dashboard.server import app
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
@@ -52,29 +77,41 @@ def _start_dashboard(port: int) -> None:
 
 @click.command()
 @click.option("--file", "-f", default=None, type=click.Path(exists=True), help="Optional: preload an orders Excel file")
-@click.option("--headless/--no-headless", default=None, help="Override headless mode from config")
 @click.option("--port", default=None, type=int, help="Dashboard port (default: 8081)")
 @click.option("--config", default="config.yaml", show_default=True, help="Path to config.yaml")
-def main(file, headless, port, config):
+def main(file, port, config):
     """Shopee shopping bot — import orders from the dashboard or via --file."""
     cfg = _load_config(config)
 
-    effective_headless = headless if headless is not None else cfg.get("headless", False)
     effective_port = port if port is not None else cfg.get("dashboard_port", 8081)
     model = cfg.get("model", "google/gemma-4-31b-it")
     viewport = cfg.get("viewport", {"width": 1920, "height": 1080})
     max_steps = cfg.get("max_steps", 20)
     wait_ms = cfg.get("wait_timeout_ms", 2500)
-    session_dir = cfg.get("session_dir", "./session")
-    browser_channel = cfg.get("browser_channel", "chrome")
     cdp_endpoint = cfg.get("cdp_endpoint", None)
-    seller_note = cfg.get("seller_note", "Quà tặng từ Cửa hàng quét QR chuyển khoản Zalopay")
+    seller_note = cfg.get("seller_note", "")
     invoice = cfg.get("invoice", {})
     batch_size = cfg.get("batch_size", 50)
     max_retries = cfg.get("max_retries", 2)
 
+    if not cdp_endpoint:
+        cdp_endpoint = "http://localhost:9222"
+        logger.warning("cdp_endpoint not set in config.yaml — defaulting to %s", cdp_endpoint)
+
     from src.database import init_db
+    from src.state import app_state
     init_db()
+
+    # Determine if first-run setup is needed
+    env_file = Path(".env")
+    api_key = os.environ.get("AI_PLATFORM_API_KEY", "").strip()
+    app_state.setup_complete = env_file.exists() and bool(api_key)
+
+    # Seed hot-reloadable config fields onto app_state
+    app_state.batch_size = batch_size
+    app_state.max_retries = max_retries
+    app_state.seller_note = seller_note
+    app_state.invoice = invoice or {}
 
     _install_dashboard_log_handler()
 
@@ -86,17 +123,22 @@ def main(file, headless, port, config):
     dash_thread.start()
     logger.info("Dashboard running at http://localhost:%d", effective_port)
 
+    # Config file watcher for hot-reload
+    watcher_thread = threading.Thread(
+        target=_config_watcher,
+        args=(config,),
+        daemon=True,
+    )
+    watcher_thread.start()
+
     asyncio.run(
         _run_bot(
             excel_path=file,
             model=model,
-            headless=effective_headless,
             viewport=viewport,
             max_steps=max_steps,
             wait_ms=wait_ms,
             dashboard_port=effective_port,
-            session_dir=session_dir,
-            browser_channel=browser_channel,
             cdp_endpoint=cdp_endpoint,
             seller_note=seller_note,
             invoice=invoice,
@@ -131,14 +173,11 @@ async def _login_watcher(browser, app_state) -> None:
 async def _run_bot(
     excel_path: str | None,
     model: str,
-    headless: bool,
     viewport: dict,
     max_steps: int,
     wait_ms: int,
+    cdp_endpoint: str,
     dashboard_port: int = 8081,
-    session_dir: str = "./session",
-    browser_channel: str | None = "chrome",
-    cdp_endpoint: str | None = None,
     seller_note: str = "",
     invoice: dict | None = None,
     batch_size: int = 50,
@@ -153,14 +192,29 @@ async def _run_bot(
 
     # Start browser early so login works before orders are imported
     browser = BrowserManager(
-        headless=headless,
+        cdp_endpoint=cdp_endpoint,
         width=viewport.get("width", 1920),
         height=viewport.get("height", 1080),
-        session_dir=session_dir,
-        channel=browser_channel,
-        cdp_endpoint=cdp_endpoint,
     )
-    await browser.start()
+    # Wait for Chrome to be available — poll instead of crashing
+    logger.info("Connecting to Chrome at %s…", cdp_endpoint)
+    while True:
+        try:
+            await browser.start()
+            app_state.browser_status = "connected"
+            await app_state.broadcast()
+            logger.info("Chrome connected via CDP")
+            break
+        except Exception:
+            if app_state.browser_status != "disconnected":
+                app_state.browser_status = "disconnected"
+                await app_state.broadcast()
+            logger.warning(
+                "Chrome not reachable at %s — start Chrome with "
+                "--remote-debugging-port=9222, retrying in 3s…", cdp_endpoint
+            )
+            await browser._reset()
+            await asyncio.sleep(3)
 
     # Check initial login status and start polling
     app_state.login_status = "logged_in" if await browser.is_logged_in() else "logged_out"
@@ -185,22 +239,27 @@ async def _run_bot(
         await browser.close()
         return
 
-    # ── Create DB session and order rows ──
+    # ── Reuse existing session (created via UI) or create a new one ──
     cfg_snapshot = {
         "model": model, "max_steps": max_steps, "wait_ms": wait_ms,
         "batch_size": batch_size, "max_retries": max_retries,
     }
-    session_id = create_session(
-        excel_filename=Path(active_path).name,
-        total_orders=len(app_state.orders),
-        config=cfg_snapshot,
-    )
+    if app_state.session_id:
+        session_id = app_state.session_id
+    else:
+        session_id = create_session(
+            excel_filename=Path(active_path).name,
+            total_orders=len(app_state.orders),
+            config=cfg_snapshot,
+        )
+        app_state.session_id = session_id
     update_session(session_id, status="running")
-    app_state.session_id = session_id
 
     raw_orders = load_orders(active_path)
     for order_state in app_state.orders:
-        raw = next((o for o in raw_orders if o["_row_index"] == order_state.row_index), None)
+        if order_state.db_order_id:
+            # Already created by the upload endpoint — skip
+            continue
         db_id = create_order(
             session_id=session_id,
             row_index=order_state.row_index,

@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>bot-mua-hang — Setup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface:  { DEFAULT: '#1e293b', dark: '#0f172a', light: '#273549' },
+            border:   { DEFAULT: '#334155' },
+            muted:    '#94a3b8',
+            heading:  '#f8fafc',
+          }
+        }
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer components {
+      .card { @apply bg-surface border border-border rounded-xl p-6; }
+      .btn-primary { @apply px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer; }
+      .btn-ghost { @apply px-4 py-2 rounded-lg text-sm font-semibold border border-border text-slate-300 hover:bg-surface-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer; }
+      .input { @apply w-full bg-surface-dark border border-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500; }
+      .label { @apply block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5; }
+      .step-circle { @apply w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all duration-300; }
+    }
+  </style>
+</head>
+<body class="bg-surface-dark text-slate-200 min-h-screen font-[system-ui,sans-serif]">
+
+  <!-- Navbar -->
+  <nav class="bg-surface border-b border-border">
+    <div class="max-w-3xl mx-auto px-4 h-14 flex items-center gap-3">
+      <svg class="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"/></svg>
+      <h1 class="text-heading font-bold text-lg">bot-mua-hang</h1>
+      <span class="ml-2 text-xs text-muted bg-surface-light px-2 py-0.5 rounded-full border border-border">Setup Wizard</span>
+    </div>
+  </nav>
+
+  <main class="max-w-3xl mx-auto px-4 py-8 space-y-6">
+
+    <!-- Step indicator -->
+    <div class="card p-4">
+      <div class="flex items-center justify-between">
+        <template id="step-template"><!-- rendered by JS --></template>
+        <div id="step-indicator" class="flex items-center w-full gap-0"></div>
+      </div>
+    </div>
+
+    <!-- Step panels -->
+    <div id="step-1" class="step-panel card space-y-4">
+      <div>
+        <h2 class="text-lg font-bold text-heading">Step 1 — Dependencies</h2>
+        <p class="text-sm text-muted mt-1">Check that all required Python packages and the Chromium browser are installed.</p>
+      </div>
+      <button id="check-deps-btn" class="btn-primary" onclick="checkDeps()">Check Dependencies</button>
+      <div id="deps-results" class="hidden space-y-1.5"></div>
+      <div id="deps-install" class="hidden">
+        <p class="text-xs font-semibold text-yellow-400 mb-2">Run these commands to install missing items:</p>
+        <pre id="deps-install-cmd" class="bg-surface-dark border border-border rounded-lg p-3 text-xs text-green-300 font-mono overflow-x-auto whitespace-pre-wrap"></pre>
+        <button class="mt-2 text-xs text-blue-400 hover:underline" onclick="copyInstallCmd()">Copy to clipboard</button>
+      </div>
+      <div class="flex justify-end pt-2">
+        <button id="step1-next" class="btn-primary" disabled onclick="goToStep(2)">Next</button>
+      </div>
+    </div>
+
+    <div id="step-2" class="step-panel card space-y-4 hidden">
+      <div>
+        <h2 class="text-lg font-bold text-heading">Step 2 — AI API Key</h2>
+        <p class="text-sm text-muted mt-1">Enter your VNG Cloud AI Platform API key. It will be validated with a test call.</p>
+      </div>
+      <div>
+        <label class="label">AI Platform API Key</label>
+        <input id="api-key-input" type="password" class="input" placeholder="sk-..." autocomplete="off" />
+      </div>
+      <div class="flex items-center gap-3">
+        <button class="btn-primary" onclick="validateKey()">Validate Key</button>
+        <div id="key-status" class="text-sm hidden"></div>
+      </div>
+      <div class="flex justify-between pt-2">
+        <button class="btn-ghost" onclick="goToStep(1)">Back</button>
+        <button id="step2-next" class="btn-primary" disabled onclick="goToStep(3)">Next</button>
+      </div>
+    </div>
+
+    <div id="step-3" class="step-panel card space-y-4 hidden">
+      <div>
+        <h2 class="text-lg font-bold text-heading">Step 3 — Browser Setup</h2>
+        <p class="text-sm text-muted mt-1">Launch Chrome or Brave with remote debugging enabled so the bot can control it.</p>
+      </div>
+      <div>
+        <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Run this command in your terminal:</p>
+        <div id="browser-cmd-mac" class="hidden">
+          <pre class="bg-surface-dark border border-border rounded-lg p-3 text-xs text-green-300 font-mono overflow-x-auto whitespace-pre-wrap">/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug</pre>
+          <p class="text-xs text-muted mt-2">Using Brave instead?</p>
+          <pre class="bg-surface-dark border border-border rounded-lg p-3 text-xs text-green-300 font-mono overflow-x-auto whitespace-pre-wrap mt-1">/Applications/Brave\ Browser.app/Contents/MacOS/Brave\ Browser --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug</pre>
+        </div>
+        <div id="browser-cmd-win" class="hidden">
+          <pre class="bg-surface-dark border border-border rounded-lg p-3 text-xs text-green-300 font-mono overflow-x-auto whitespace-pre-wrap">chrome.exe --remote-debugging-port=9222 --user-data-dir=%TEMP%\chrome-debug</pre>
+          <p class="text-xs text-muted mt-2">Using Brave instead?</p>
+          <pre class="bg-surface-dark border border-border rounded-lg p-3 text-xs text-green-300 font-mono overflow-x-auto whitespace-pre-wrap mt-1">brave.exe --remote-debugging-port=9222 --user-data-dir=%TEMP%\chrome-debug</pre>
+        </div>
+        <div id="browser-cmd-linux" class="hidden">
+          <pre class="bg-surface-dark border border-border rounded-lg p-3 text-xs text-green-300 font-mono overflow-x-auto whitespace-pre-wrap">google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug</pre>
+          <p class="text-xs text-muted mt-2">Using Brave instead?</p>
+          <pre class="bg-surface-dark border border-border rounded-lg p-3 text-xs text-green-300 font-mono overflow-x-auto whitespace-pre-wrap mt-1">brave-browser --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug</pre>
+        </div>
+      </div>
+      <div id="browser-status" class="flex items-center gap-2 text-sm text-muted">
+        <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+        Waiting for browser on port 9222…
+      </div>
+      <div class="flex justify-between pt-2">
+        <button class="btn-ghost" onclick="goToStep(2)">Back</button>
+        <button id="step3-next" class="btn-primary" disabled onclick="goToStep(4)">Next</button>
+      </div>
+    </div>
+
+    <div id="step-4" class="step-panel card space-y-4 hidden">
+      <div>
+        <h2 class="text-lg font-bold text-heading">Step 4 — Shopee Login</h2>
+        <p class="text-sm text-muted mt-1">Log into your Shopee account. The bot will detect when you're logged in automatically.</p>
+      </div>
+      <button class="btn-primary inline-flex items-center gap-2" onclick="openShopeeLogin()">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>
+        Open Shopee Login
+      </button>
+      <div id="login-status" class="flex items-center gap-2 text-sm text-muted">
+        <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+        Waiting for Shopee login…
+      </div>
+      <div class="flex justify-between pt-2">
+        <button class="btn-ghost" onclick="goToStep(3)">Back</button>
+        <button id="step4-next" class="btn-primary" disabled onclick="goToStep(5)">Next</button>
+      </div>
+    </div>
+
+    <div id="step-5" class="step-panel card space-y-5 hidden">
+      <div>
+        <h2 class="text-lg font-bold text-heading">Step 5 — Configuration</h2>
+        <p class="text-sm text-muted mt-1">Review and save your bot settings. These will be written to <code class="text-blue-300">.env</code> and <code class="text-blue-300">config.yaml</code>.</p>
+      </div>
+
+      <!-- Hidden API key carried forward -->
+      <input type="hidden" id="save-api-key" />
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="sm:col-span-2">
+          <label class="label">Seller Note <span class="text-green-400 normal-case font-normal">(hot-reloadable)</span></label>
+          <input id="cfg-seller-note" type="text" class="input" placeholder="Quà tặng từ Cửa hàng..." />
+        </div>
+        <div>
+          <label class="label">Max Steps per Order <span class="text-green-400 normal-case font-normal">(hot-reloadable)</span></label>
+          <input id="cfg-max-steps" type="number" class="input" value="20" min="5" max="100" />
+        </div>
+        <div>
+          <label class="label">Wait Timeout (ms) <span class="text-green-400 normal-case font-normal">(hot-reloadable)</span></label>
+          <input id="cfg-wait-ms" type="number" class="input" value="2500" min="500" step="500" />
+        </div>
+        <div>
+          <label class="label">Batch Size <span class="text-green-400 normal-case font-normal">(hot-reloadable)</span></label>
+          <input id="cfg-batch-size" type="number" class="input" value="50" min="1" max="500" />
+        </div>
+        <div>
+          <label class="label">Max Retries <span class="text-green-400 normal-case font-normal">(hot-reloadable)</span></label>
+          <input id="cfg-max-retries" type="number" class="input" value="2" min="0" max="10" />
+        </div>
+      </div>
+
+      <div>
+        <h3 class="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+          VAT Invoice
+          <span class="text-xs text-muted font-normal">(leave blank to skip invoice step)</span>
+        </h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="label">Company Name</label>
+            <input id="cfg-inv-company" type="text" class="input" placeholder="Optional" />
+          </div>
+          <div>
+            <label class="label">Tax ID</label>
+            <input id="cfg-inv-tax" type="text" class="input" placeholder="Optional" />
+          </div>
+          <div>
+            <label class="label">Address</label>
+            <input id="cfg-inv-address" type="text" class="input" placeholder="Optional" />
+          </div>
+          <div>
+            <label class="label">Email</label>
+            <input id="cfg-inv-email" type="email" class="input" placeholder="Optional" />
+          </div>
+        </div>
+      </div>
+
+      <div id="save-status" class="hidden text-sm"></div>
+
+      <div class="flex justify-between pt-2">
+        <button class="btn-ghost" onclick="goToStep(4)">Back</button>
+        <button class="btn-primary" onclick="saveConfig()">Save &amp; Start</button>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Toast -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <script>
+    // ── State ─────────────────────────────────────────────────────
+    let currentStep = 1;
+    let depsOk = false;
+    let apiKeyValidated = false;
+    let browserFound = false;
+    let loggedIn = false;
+    let browserPollTimer = null;
+    let loginPollTimer = null;
+
+    const STEP_LABELS = ['Dependencies', 'API Key', 'Browser', 'Login', 'Config'];
+
+    // ── Utilities ─────────────────────────────────────────────────
+
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const colors = {
+        success: 'bg-green-900/90 text-green-200 border-green-700',
+        error:   'bg-red-900/90 text-red-200 border-red-700',
+        info:    'bg-blue-900/90 text-blue-200 border-blue-700',
+      };
+      const toast = document.createElement('div');
+      toast.className = `${colors[type] || colors.info} border rounded-lg px-4 py-3 text-sm font-medium shadow-lg pointer-events-auto transform translate-x-[120%] transition-transform duration-300`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      requestAnimationFrame(() => { toast.style.transform = 'translateX(0)'; });
+      setTimeout(() => { toast.style.transform = 'translateX(120%)'; setTimeout(() => toast.remove(), 300); }, 4000);
+    }
+
+    // ── Step indicator ────────────────────────────────────────────
+
+    function renderStepIndicator() {
+      const el = document.getElementById('step-indicator');
+      el.innerHTML = STEP_LABELS.map((label, i) => {
+        const n = i + 1;
+        const isDone = n < currentStep;
+        const isActive = n === currentStep;
+        const circleClass = isDone
+          ? 'border-green-500 bg-green-500 text-white'
+          : isActive
+            ? 'border-blue-500 bg-blue-500 text-white'
+            : 'border-border bg-surface text-muted';
+        const labelClass = isActive ? 'text-blue-400 font-semibold' : isDone ? 'text-green-400' : 'text-muted';
+        const connector = i < STEP_LABELS.length - 1
+          ? `<div class="flex-1 h-px mx-1 ${isDone ? 'bg-green-500' : 'bg-border'}"></div>`
+          : '';
+        return `<div class="flex items-center ${i < STEP_LABELS.length - 1 ? 'flex-1' : ''}">
+          <div class="flex flex-col items-center gap-1 shrink-0">
+            <div class="step-circle ${circleClass}">
+              ${isDone ? '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clip-rule="evenodd"/></svg>' : n}
+            </div>
+            <span class="text-xs ${labelClass} hidden sm:block whitespace-nowrap">${label}</span>
+          </div>
+          ${connector}
+        </div>`;
+      }).join('');
+    }
+
+    // ── Navigation ────────────────────────────────────────────────
+
+    function goToStep(n) {
+      document.querySelectorAll('.step-panel').forEach(el => el.classList.add('hidden'));
+      document.getElementById('step-' + n).classList.remove('hidden');
+      currentStep = n;
+      renderStepIndicator();
+
+      if (n === 3) startBrowserPolling();
+      else stopBrowserPolling();
+
+      if (n === 4) startLoginPolling();
+      else stopLoginPolling();
+
+      if (n === 5) loadCurrentConfig();
+    }
+
+    // ── Step 1: Dependencies ──────────────────────────────────────
+
+    async function checkDeps() {
+      const btn = document.getElementById('check-deps-btn');
+      const resultsEl = document.getElementById('deps-results');
+      const installEl = document.getElementById('deps-install');
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+      resultsEl.classList.add('hidden');
+      installEl.classList.add('hidden');
+
+      try {
+        const res = await fetch('/api/setup/check-deps');
+        const data = await res.json();
+
+        resultsEl.innerHTML = data.results.map(r => `
+          <div class="flex items-center gap-2 text-sm">
+            ${r.ok
+              ? '<svg class="w-4 h-4 text-green-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd"/></svg>'
+              : '<svg class="w-4 h-4 text-red-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.28 7.22a.75.75 0 0 0-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 1 0 1.06 1.06L10 11.06l1.72 1.72a.75.75 0 1 0 1.06-1.06L11.06 10l1.72-1.72a.75.75 0 0 0-1.06-1.06L10 8.94 8.28 7.22Z" clip-rule="evenodd"/></svg>'}
+            <span class="${r.ok ? 'text-slate-300' : 'text-red-300'}">${esc(r.name)}</span>
+          </div>
+        `).join('');
+        resultsEl.classList.remove('hidden');
+
+        if (data.install_cmd) {
+          document.getElementById('deps-install-cmd').textContent = data.install_cmd;
+          installEl.classList.remove('hidden');
+        }
+
+        depsOk = data.ok;
+        document.getElementById('step1-next').disabled = !depsOk;
+        btn.textContent = 'Re-check';
+        btn.disabled = false;
+      } catch (e) {
+        btn.textContent = 'Check Dependencies';
+        btn.disabled = false;
+        showToast('Failed to check dependencies: ' + e.message, 'error');
+      }
+    }
+
+    function copyInstallCmd() {
+      const txt = document.getElementById('deps-install-cmd').textContent;
+      navigator.clipboard.writeText(txt).then(() => showToast('Copied to clipboard', 'success'));
+    }
+
+    // ── Step 2: API Key ───────────────────────────────────────────
+
+    async function validateKey() {
+      const input = document.getElementById('api-key-input');
+      const statusEl = document.getElementById('key-status');
+      const nextBtn = document.getElementById('step2-next');
+      const key = input.value.trim();
+      if (!key) { showToast('Please enter an API key', 'error'); return; }
+
+      statusEl.className = 'text-sm flex items-center gap-2 text-muted';
+      statusEl.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg> Validating…';
+      statusEl.classList.remove('hidden');
+
+      try {
+        const res = await fetch('/api/setup/validate-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: key }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          statusEl.className = 'text-sm flex items-center gap-2 text-green-400';
+          statusEl.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd"/></svg> Key validated successfully';
+          apiKeyValidated = true;
+          nextBtn.disabled = false;
+          document.getElementById('save-api-key').value = key;
+        } else {
+          statusEl.className = 'text-sm flex items-center gap-2 text-red-400';
+          statusEl.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.28 7.22a.75.75 0 0 0-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 1 0 1.06 1.06L10 11.06l1.72 1.72a.75.75 0 1 0 1.06-1.06L11.06 10l1.72-1.72a.75.75 0 0 0-1.06-1.06L10 8.94 8.28 7.22Z" clip-rule="evenodd"/></svg> ' + esc(data.error || 'Validation failed');
+          apiKeyValidated = false;
+          nextBtn.disabled = true;
+        }
+      } catch (e) {
+        statusEl.className = 'text-sm text-red-400';
+        statusEl.textContent = 'Error: ' + e.message;
+        nextBtn.disabled = true;
+      }
+    }
+
+    // ── Step 3: Browser ───────────────────────────────────────────
+
+    function detectOS() {
+      const p = navigator.platform.toLowerCase();
+      if (p.includes('win')) return 'win';
+      if (p.includes('linux')) return 'linux';
+      return 'mac';
+    }
+
+    function showOsCommand() {
+      const os = detectOS();
+      document.getElementById('browser-cmd-mac').classList.toggle('hidden', os !== 'mac');
+      document.getElementById('browser-cmd-win').classList.toggle('hidden', os !== 'win');
+      document.getElementById('browser-cmd-linux').classList.toggle('hidden', os !== 'linux');
+    }
+
+    async function pollBrowser() {
+      try {
+        const res = await fetch('/api/setup/check-browser');
+        const data = await res.json();
+        const statusEl = document.getElementById('browser-status');
+        const nextBtn = document.getElementById('step3-next');
+        if (data.found) {
+          browserFound = true;
+          statusEl.className = 'flex items-center gap-2 text-sm text-green-400';
+          statusEl.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd"/></svg> Browser detected' + (data.browser ? ' — ' + esc(data.browser) : '');
+          nextBtn.disabled = false;
+          stopBrowserPolling();
+          setTimeout(() => goToStep(4), 1200);
+        } else {
+          statusEl.className = 'flex items-center gap-2 text-sm text-muted';
+          statusEl.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg> Waiting for browser on port 9222…';
+        }
+      } catch {}
+    }
+
+    function startBrowserPolling() {
+      showOsCommand();
+      if (browserFound) return;
+      pollBrowser();
+      browserPollTimer = setInterval(pollBrowser, 2000);
+    }
+
+    function stopBrowserPolling() {
+      if (browserPollTimer) { clearInterval(browserPollTimer); browserPollTimer = null; }
+    }
+
+    // ── Step 4: Login ─────────────────────────────────────────────
+
+    async function openShopeeLogin() {
+      try {
+        await fetch('/login', { method: 'POST' });
+        showToast('Opening Shopee login page…', 'info');
+      } catch {}
+    }
+
+    async function pollLogin() {
+      try {
+        const res = await fetch('/api/setup/check-login');
+        const data = await res.json();
+        const statusEl = document.getElementById('login-status');
+        const nextBtn = document.getElementById('step4-next');
+        if (data.logged_in) {
+          loggedIn = true;
+          statusEl.className = 'flex items-center gap-2 text-sm text-green-400';
+          statusEl.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd"/></svg> Logged into Shopee — session detected';
+          nextBtn.disabled = false;
+          stopLoginPolling();
+          setTimeout(() => goToStep(5), 1200);
+        } else {
+          statusEl.className = 'flex items-center gap-2 text-sm text-muted';
+          statusEl.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg> Waiting for Shopee login…';
+        }
+      } catch {}
+    }
+
+    function startLoginPolling() {
+      if (loggedIn) return;
+      pollLogin();
+      loginPollTimer = setInterval(pollLogin, 3000);
+    }
+
+    function stopLoginPolling() {
+      if (loginPollTimer) { clearInterval(loginPollTimer); loginPollTimer = null; }
+    }
+
+    // ── Step 5: Config ────────────────────────────────────────────
+
+    async function loadCurrentConfig() {
+      // Pull current config values to pre-populate form
+      try {
+        const res = await fetch('/api/setup/status');
+        // status doesn't include config values; skip for now, defaults are already in HTML
+      } catch {}
+    }
+
+    async function saveConfig() {
+      const statusEl = document.getElementById('save-status');
+      statusEl.className = 'text-sm flex items-center gap-2 text-muted';
+      statusEl.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg> Saving…';
+      statusEl.classList.remove('hidden');
+
+      const payload = {
+        api_key: document.getElementById('save-api-key').value,
+        seller_note: document.getElementById('cfg-seller-note').value,
+        max_steps: parseInt(document.getElementById('cfg-max-steps').value) || 20,
+        wait_timeout_ms: parseInt(document.getElementById('cfg-wait-ms').value) || 2500,
+        batch_size: parseInt(document.getElementById('cfg-batch-size').value) || 50,
+        max_retries: parseInt(document.getElementById('cfg-max-retries').value) || 2,
+        invoice_company: document.getElementById('cfg-inv-company').value,
+        invoice_tax_id: document.getElementById('cfg-inv-tax').value,
+        invoice_address: document.getElementById('cfg-inv-address').value,
+        invoice_email: document.getElementById('cfg-inv-email').value,
+      };
+
+      try {
+        const res = await fetch('/api/setup/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          statusEl.className = 'text-sm flex items-center gap-2 text-green-400';
+          statusEl.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd"/></svg> Saved! Redirecting to dashboard…';
+          setTimeout(() => { window.location = '/'; }, 1500);
+        } else {
+          statusEl.className = 'text-sm text-red-400';
+          statusEl.textContent = 'Save failed: ' + (data.error || 'unknown error');
+        }
+      } catch (e) {
+        statusEl.className = 'text-sm text-red-400';
+        statusEl.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    // ── Init ──────────────────────────────────────────────────────
+
+    renderStepIndicator();
+    showOsCommand();
+  </script>
+</body>
+</html>

@@ -57,7 +57,10 @@ def init_db() -> None:
             debug_log_dir   TEXT DEFAULT '',
             started_at      TEXT,
             completed_at    TEXT,
-            total_steps     INTEGER DEFAULT 0
+            total_steps     INTEGER DEFAULT 0,
+            input_tokens    INTEGER DEFAULT 0,
+            output_tokens   INTEGER DEFAULT 0,
+            duration_ms     INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS order_steps (
@@ -78,6 +81,16 @@ def init_db() -> None:
             annotated_filename   TEXT DEFAULT ''
         );
     """)
+    # Migrate existing databases — silently skip if columns already exist
+    for col in [
+        "ALTER TABLE orders ADD COLUMN input_tokens  INTEGER DEFAULT 0",
+        "ALTER TABLE orders ADD COLUMN output_tokens INTEGER DEFAULT 0",
+        "ALTER TABLE orders ADD COLUMN duration_ms   INTEGER DEFAULT 0",
+    ]:
+        try:
+            conn.execute(col)
+        except Exception:
+            pass
     conn.commit()
 
 
@@ -104,15 +117,30 @@ def update_session(session_id: int, **fields) -> None:
     conn.commit()
 
 
+_SESSION_WITH_TOKENS_SQL = """
+    SELECT s.*,
+        COALESCE(SUM(o.input_tokens),  0) AS total_input_tokens,
+        COALESCE(SUM(o.output_tokens), 0) AS total_output_tokens,
+        COALESCE(SUM(o.duration_ms),   0) AS total_duration_ms
+    FROM sessions s
+    LEFT JOIN orders o ON o.session_id = s.id
+    {where}
+    GROUP BY s.id
+    {order}
+"""
+
+
 def list_sessions() -> list[dict]:
     conn = _get_conn()
-    rows = conn.execute("SELECT * FROM sessions ORDER BY id DESC").fetchall()
+    sql = _SESSION_WITH_TOKENS_SQL.format(where="", order="ORDER BY s.id DESC")
+    rows = conn.execute(sql).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_session(session_id: int) -> dict | None:
     conn = _get_conn()
-    row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    sql = _SESSION_WITH_TOKENS_SQL.format(where="WHERE s.id = ?", order="")
+    row = conn.execute(sql, (session_id,)).fetchone()
     return dict(row) if row else None
 
 

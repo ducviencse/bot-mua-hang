@@ -1,9 +1,11 @@
 import json
+import os
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -12,6 +14,17 @@ from ..excel_handler import load_orders
 from .. import database as db
 
 app = FastAPI(title="bot-mua-hang dashboard")
+
+
+# ── First-run redirect middleware ─────────────────────────────────
+
+@app.middleware("http")
+async def setup_redirect(request: Request, call_next):
+    if not app_state.setup_complete:
+        path = request.url.path
+        if path == "/" or path.startswith("/sessions"):
+            return RedirectResponse(url="/setup")
+    return await call_next(request)
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -265,6 +278,186 @@ async def legacy_start():
 async def legacy_retry_all():
     sid = app_state.session_id or 0
     return await api_retry_all(sid)
+
+
+# ── Setup Wizard ─────────────────────────────────────────────────
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_page():
+    return (_TEMPLATE_DIR / "setup.html").read_text(encoding="utf-8")
+
+
+_REQUIRED_PACKAGES = [
+    ("patchright", "patchright"),
+    ("openai", "openai"),
+    ("openpyxl", "openpyxl"),
+    ("pandas", "pandas"),
+    ("fastapi", "fastapi"),
+    ("uvicorn", "uvicorn"),
+    ("yaml", "pyyaml"),
+    ("dotenv", "python-dotenv"),
+    ("click", "click"),
+    ("PIL", "Pillow"),
+    ("websockets", "websockets"),
+]
+
+
+@app.get("/api/setup/status")
+async def api_setup_status():
+    return JSONResponse({
+        "setup_complete": app_state.setup_complete,
+        "login_status": app_state.login_status,
+    })
+
+
+@app.get("/api/setup/check-deps")
+async def api_check_deps():
+    import importlib
+    missing = []
+    results = []
+    for import_name, pip_name in _REQUIRED_PACKAGES:
+        try:
+            importlib.import_module(import_name)
+            results.append({"name": pip_name, "ok": True})
+        except ImportError:
+            results.append({"name": pip_name, "ok": False})
+            missing.append(pip_name)
+
+    install_cmd = ""
+    if missing:
+        install_cmd = "pip install " + " ".join(missing)
+
+    return JSONResponse({
+        "ok": len(missing) == 0,
+        "results": results,
+        "missing": missing,
+        "install_cmd": install_cmd,
+    })
+
+
+class ValidateKeyBody(BaseModel):
+    api_key: str
+
+
+@app.post("/api/setup/validate-key")
+async def api_validate_key(body: ValidateKeyBody):
+    import asyncio
+    from openai import AsyncOpenAI, APIError
+
+    client = AsyncOpenAI(
+        api_key=body.api_key.strip(),
+        base_url="https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1",
+    )
+    try:
+        resp = await asyncio.wait_for(
+            client.chat.completions.create(
+                model="google/gemma-4-31b-it",
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=5,
+            ),
+            timeout=15,
+        )
+        _ = resp.choices[0].message.content
+        return JSONResponse({"ok": True})
+    except APIError as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.get("/api/setup/check-browser")
+async def api_check_browser():
+    try:
+        with urllib.request.urlopen("http://localhost:9222/json/version", timeout=2) as r:
+            data = json.loads(r.read())
+        return JSONResponse({"found": True, "browser": data.get("Browser", "")})
+    except Exception:
+        return JSONResponse({"found": False})
+
+
+@app.get("/api/setup/check-login")
+async def api_check_login():
+    # Try CDP-based cookie check via browser WebSocket
+    try:
+        import asyncio
+        import websockets
+
+        with urllib.request.urlopen("http://localhost:9222/json/version", timeout=2) as r:
+            data = json.loads(r.read())
+        ws_url = data.get("webSocketDebuggerUrl")
+        if ws_url:
+            async with websockets.connect(ws_url, ping_interval=None) as ws:
+                await ws.send(json.dumps({"id": 1, "method": "Network.getAllCookies"}))
+                resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+                cookies = resp.get("result", {}).get("cookies", [])
+                logged_in = any(c.get("name") == "SPC_U" for c in cookies)
+                if logged_in:
+                    app_state.login_status = "logged_in"
+                return JSONResponse({"logged_in": logged_in})
+    except Exception:
+        pass
+    # Fallback to app_state
+    return JSONResponse({"logged_in": app_state.login_status == "logged_in"})
+
+
+class SetupSaveBody(BaseModel):
+    api_key: str
+    seller_note: str = ""
+    max_steps: int = 20
+    wait_timeout_ms: int = 2500
+    batch_size: int = 50
+    max_retries: int = 2
+    invoice_company: str = ""
+    invoice_tax_id: str = ""
+    invoice_address: str = ""
+    invoice_email: str = ""
+
+
+@app.post("/api/setup/save")
+async def api_setup_save(body: SetupSaveBody):
+    import yaml
+
+    # Write .env
+    env_path = Path(".env")
+    env_lines: list[str] = []
+    if env_path.exists():
+        existing = env_path.read_text(encoding="utf-8").splitlines()
+        env_lines = [l for l in existing if not l.startswith("AI_PLATFORM_API_KEY=")]
+    env_lines.append(f"AI_PLATFORM_API_KEY={body.api_key.strip()}")
+    env_path.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+
+    # Load existing config.yaml (preserve non-wizard keys)
+    cfg_path = Path("config.yaml")
+    existing_cfg: dict = {}
+    if cfg_path.exists():
+        with open(cfg_path) as f:
+            existing_cfg = yaml.safe_load(f) or {}
+
+    existing_cfg["seller_note"] = body.seller_note
+    existing_cfg["max_steps"] = body.max_steps
+    existing_cfg["wait_timeout_ms"] = body.wait_timeout_ms
+    existing_cfg["batch_size"] = body.batch_size
+    existing_cfg["max_retries"] = body.max_retries
+    existing_cfg["invoice"] = {
+        "company_name": body.invoice_company,
+        "tax_id": body.invoice_tax_id,
+        "address": body.invoice_address,
+        "email": body.invoice_email,
+    }
+
+    with open(cfg_path, "w") as f:
+        yaml.dump(existing_cfg, f, allow_unicode=True, default_flow_style=False)
+
+    # Reload env + update app_state
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+    app_state.setup_complete = True
+    app_state.batch_size = body.batch_size
+    app_state.max_retries = body.max_retries
+    app_state.seller_note = body.seller_note
+    app_state.invoice = existing_cfg["invoice"]
+
+    return JSONResponse({"ok": True})
 
 
 # ── WebSocket ────────────────────────────────────────────────────

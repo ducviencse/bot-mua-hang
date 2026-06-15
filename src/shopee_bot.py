@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -132,6 +133,10 @@ class ShopeeBot:
 
         self.agent.reset_history()
         self._recent_actions: list[str] = []
+        order_state.input_tokens = 0
+        order_state.output_tokens = 0
+        order_state.duration_ms = 0
+        _start_time = time.monotonic()
         order_state.status = "running"
         if order_state.db_order_id:
             update_order(
@@ -146,14 +151,14 @@ class ShopeeBot:
             await self.browser.goto(order["product_url"])
         except Exception as exc:
             ol.error(f"Navigation error: {exc}")
-            await self._fail(order_state, row_index, f"Navigation error: {exc}")
+            await self._fail(order_state, row_index, f"Navigation error: {exc}", _start_time)
             ol.result("FAILED", f"Navigation error: {exc}")
             return
 
         # Check for CAPTCHA immediately after navigation
         if _is_captcha_url(self.browser.page.url):
             ol.error("CAPTCHA detected")
-            await self._fail(order_state, row_index, "CAPTCHA detected — skipping this order")
+            await self._fail(order_state, row_index, "CAPTCHA detected — skipping this order", _start_time)
             ol.result("FAILED", "CAPTCHA detected")
             return
 
@@ -178,10 +183,12 @@ class ShopeeBot:
                 action: Action = await self.agent.decide(
                     screenshot, objective, elements,
                 )
+                order_state.input_tokens += self.agent.last_input_tokens
+                order_state.output_tokens += self.agent.last_output_tokens
             except Exception as exc:
                 logger.error("[Order %d] LLM error: %s", row_index, exc)
                 ol.error(f"LLM error: {exc}")
-                await self._fail(order_state, row_index, f"LLM error: {exc}")
+                await self._fail(order_state, row_index, f"LLM error: {exc}", _start_time)
                 ol.result("FAILED", f"LLM error: {exc}")
                 return
 
@@ -242,6 +249,7 @@ class ShopeeBot:
                 order_id = await self._extract_order_id()
                 order_state.status = "success"
                 order_state.order_id = order_id
+                order_state.duration_ms = int((time.monotonic() - _start_time) * 1000)
                 if order_state.db_order_id:
                     update_order(
                         order_state.db_order_id,
@@ -249,6 +257,9 @@ class ShopeeBot:
                         order_id=order_id,
                         total_steps=step,
                         completed_at=datetime.now().isoformat(),
+                        input_tokens=order_state.input_tokens,
+                        output_tokens=order_state.output_tokens,
+                        duration_ms=order_state.duration_ms,
                     )
                 logger.info("[Order %d] SUCCESS — order_id=%s", row_index, order_id)
                 ol.result("SUCCESS", f"order_id={order_id}")
@@ -257,7 +268,7 @@ class ShopeeBot:
 
             if action.action == "fail":
                 reason = action.reasoning or "Agent declared failure"
-                await self._fail(order_state, row_index, reason)
+                await self._fail(order_state, row_index, reason, _start_time)
                 ol.result("FAILED", reason)
                 return
 
@@ -265,7 +276,7 @@ class ShopeeBot:
                 ol.info("Waiting for OTP from dashboard…")
                 otp = await self._wait_for_otp(order_state)
                 if not otp:
-                    await self._fail(order_state, row_index, "OTP not received")
+                    await self._fail(order_state, row_index, "OTP not received", _start_time)
                     ol.result("FAILED", "OTP not received")
                     return
                 ol.info(f"OTP received: {otp}")
@@ -281,18 +292,18 @@ class ShopeeBot:
             except Exception as exc:
                 logger.error("[Order %d] Execute error: %s", row_index, exc)
                 ol.error(f"Execute error: {exc}")
-                await self._fail(order_state, row_index, f"Execute error: {exc}")
+                await self._fail(order_state, row_index, f"Execute error: {exc}", _start_time)
                 ol.result("FAILED", f"Execute error: {exc}")
                 return
 
             # Check for CAPTCHA after each action
             if _is_captcha_url(self.browser.page.url):
                 ol.error("CAPTCHA detected after action")
-                await self._fail(order_state, row_index, "CAPTCHA detected — skipping this order")
+                await self._fail(order_state, row_index, "CAPTCHA detected — skipping this order", _start_time)
                 ol.result("FAILED", "CAPTCHA detected")
                 return
 
-        await self._fail(order_state, row_index, f"Exceeded max_steps ({self.max_steps})")
+        await self._fail(order_state, row_index, f"Exceeded max_steps ({self.max_steps})", _start_time)
         ol.result("FAILED", f"Exceeded max_steps ({self.max_steps})")
 
     async def _wait_for_otp(self, order_state: OrderState, timeout: int = 300) -> str:
@@ -316,10 +327,12 @@ class ShopeeBot:
 
         return otp if received else ""
 
-    async def _fail(self, order_state: OrderState, row_index: int, note: str) -> None:
+    async def _fail(self, order_state: OrderState, row_index: int, note: str, start_time: float | None = None) -> None:
         order_state.status = "failed"
         order_state.note = note
         order_state.failure_category = classify_failure(note)
+        if start_time is not None:
+            order_state.duration_ms = int((time.monotonic() - start_time) * 1000)
         if order_state.db_order_id:
             update_order(
                 order_state.db_order_id,
@@ -329,6 +342,9 @@ class ShopeeBot:
                 retry_count=order_state.retry_count,
                 total_steps=order_state.current_step,
                 completed_at=datetime.now().isoformat(),
+                input_tokens=order_state.input_tokens,
+                output_tokens=order_state.output_tokens,
+                duration_ms=order_state.duration_ms,
             )
         logger.warning("[Order %d] FAILED (%s) — %s", row_index, order_state.failure_category, note)
         await self.app_state.broadcast()

@@ -202,6 +202,8 @@ class VisionAgent:
         self._history: list[str] = []
         self.last_raw_response: str = ""
         self.last_annotated_screenshot: bytes = b""
+        self.last_input_tokens: int = 0
+        self.last_output_tokens: int = 0
 
     def reset_history(self) -> None:
         """Clear action history (call at the start of each order)."""
@@ -277,6 +279,9 @@ class VisionAgent:
 
         raw = response.choices[0].message.content or "{}"
         self.last_raw_response = raw
+        usage = response.usage
+        self.last_input_tokens = usage.prompt_tokens if usage else 0
+        self.last_output_tokens = usage.completion_tokens if usage else 0
         logger.info("LLM raw response: %s", raw)
 
         # Extract the last JSON block

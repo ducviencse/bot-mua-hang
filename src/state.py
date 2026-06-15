@@ -63,6 +63,9 @@ class OrderState:
     retry_count: int = 0
     failure_category: str = ""  # "retryable" | "permanent" | ""
     db_order_id: int | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    duration_ms: int = 0
 
 
 class AppState:
@@ -86,6 +89,10 @@ class AppState:
         self.total_batches: int = 0
         self.completed: bool = False
         self.session_id: int | None = None
+        self.setup_complete: bool = False
+        self.seller_note: str = ""
+        self.invoice: dict = {}
+        self.browser_status: str = "disconnected"  # "disconnected" | "connected"
 
     def add_subscriber(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
@@ -154,6 +161,9 @@ class AppState:
                 "current_step": o.current_step,
                 "retry_count": o.retry_count,
                 "failure_category": o.failure_category,
+                "input_tokens": o.input_tokens,
+                "output_tokens": o.output_tokens,
+                "duration_ms": o.duration_ms,
             }
             # Only send screenshot/reasoning for the active order
             if self.active_order_index is not None and i == self.active_order_index:
@@ -164,10 +174,18 @@ class AppState:
                 order_dict["last_reasoning"] = ""
             orders_data.append(order_dict)
 
+        total_input_tokens = sum(o.input_tokens for o in self.orders)
+        total_output_tokens = sum(o.output_tokens for o in self.orders)
+        total_duration_ms = sum(o.duration_ms for o in self.orders)
+
         return {
             "started": self.started,
             "session_id": self.session_id,
+            "browser_status": self.browser_status,
             "login_status": self.login_status,
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens,
+            "total_duration_ms": total_duration_ms,
             "otp_requested": self.otp_requested,
             "logs": list(self.logs),
             "orders": orders_data,
